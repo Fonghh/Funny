@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050709">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PicklePose">
+<meta name="description" content="在手機上分析匹克球影片的骨架動作，給出參考用的改進建議。影片不會上傳。">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<style>
+/* what the Artifact host normally provides around the fragment */
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; -webkit-text-size-adjust: 100%; }
+img { max-width: 100%; }
+</style>
+<title>匹克球動作分析</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: phone-first HUD. Fold 1 = toolbar + video + results (fits one portrait screen); fold 2 = full advice, guide. Single dark look by design. */
+:root {
+  --bg: #050709;
+  --panel: #0b1014;
+  --panel-2: #10171c;
+  --line: #1c272e;
+  --line-hi: #2b3a43;
+  --ink: #e8f0f2;
+  --muted: #7d8f97;
+  --cyan: #3fd4ff;
+  --cyan-dim: rgba(63, 212, 255, .14);
+  --ball: #f3d23c;
+  --good: #44e0a0;
+  --warn: #ffb547;
+  --bad: #ff5d6c;
+  --display: "Chakra Petch", "Noto Sans TC", system-ui, sans-serif;
+  --body: "Noto Sans TC", -apple-system, "PingFang TC", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { background: var(--bg); }
+body { color: var(--ink); font-family: var(--body); font-size: 14px; line-height: 1.5; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.app {
+  max-width: 560px; margin: 0 auto;
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+  padding-block: 8px 40px;
+  display: grid; gap: 8px;
+}
+button, select, .btn { font: inherit; color: var(--ink); }
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+/* toolbar */
+.bar { display: flex; align-items: center; gap: 8px; min-height: 40px; }
+.brand { display: flex; align-items: baseline; gap: 6px; margin-right: auto; min-width: 0; }
+.brand b { font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: .06em; white-space: nowrap; }
+.brand b i { font-style: normal; color: var(--cyan); }
+.brand span { font-family: var(--mono); font-size: 10px; color: var(--ball); border: 1px solid currentColor; padding: 0 5px; border-radius: 3px; white-space: nowrap; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
+  min-height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-hi); background: var(--panel-2);
+  font-size: 14px; font-weight: 500; white-space: nowrap;
+}
+.btn.primary { background: var(--cyan); border-color: var(--cyan); color: var(--bg); font-weight: 700; min-height: 42px; padding: 0 16px; font-size: 15px; box-shadow: 0 0 14px rgba(63, 212, 255, .35); }
+.btn.go { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); font-weight: 700; }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn.icon { width: 38px; padding: 0; }
+.btn.icon svg { width: 18px; height: 18px; }
+.btn[aria-expanded="true"] { border-color: var(--cyan); color: var(--cyan); }
+
+.settings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.settings label { display: grid; gap: 3px; font-size: 11px; color: var(--muted); min-width: 0; }
+.settings select { width: 100%; min-height: 36px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line-hi); background: var(--panel-2); font-size: 13px; }
+@media (max-width: 380px) { .settings { grid-template-columns: 1fr 1fr; } }
+
+/* video stage */
+.viewer { position: relative; width: 100%; max-width: 100%; aspect-ratio: 16 / 9; margin-inline: auto; background: #000; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+.viewer video, .viewer canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.viewer video { object-fit: fill; }
+.viewer .corner { position: absolute; width: 14px; height: 14px; border: 2px solid var(--cyan); pointer-events: none; opacity: .9; }
+.viewer .c1 { top: 6px; left: 6px; border-right: 0; border-bottom: 0; }
+.viewer .c2 { top: 6px; right: 6px; border-left: 0; border-bottom: 0; }
+.viewer .c3 { bottom: 6px; left: 6px; border-right: 0; border-top: 0; }
+.viewer .c4 { bottom: 6px; right: 6px; border-left: 0; border-top: 0; }
+.viewer .src { position: absolute; top: 9px; left: 30px; right: 26px; font-family: var(--mono); font-size: 10px; color: var(--ink); text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.viewer .src em { font-style: normal; color: var(--cyan); }
+.viewer .hint { position: absolute; left: 8px; right: 8px; bottom: 10px; color: var(--ink); background: rgba(5, 7, 9, .78); border: 1px solid var(--line-hi); padding: 5px 8px; border-radius: 6px; font-size: 12px; pointer-events: none; }
+.viewer .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: transparent; }
+.viewer .prog i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); transition: width .2s; }
+
+.ctrl { display: flex; align-items: center; gap: 6px; }
+.seg { display: inline-flex; border: 1px solid var(--line-hi); border-radius: 8px; overflow: hidden; }
+.seg button { background: var(--panel-2); border: 0; min-height: 36px; padding: 0 9px; cursor: pointer; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--cyan-dim); color: var(--cyan); }
+.time { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
+.status { font-family: var(--mono); font-size: 11px; color: var(--muted); min-height: 16px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status.err { color: var(--bad); white-space: normal; }
+
+/* results HUD */
+.hud { display: grid; gap: 6px; padding: 8px 10px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.hud-head { display: flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-size: 10px; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+.hud-head b { color: var(--cyan); font-weight: 500; }
+.hud-head a { margin-left: auto; color: var(--muted); text-decoration: none; text-transform: none; letter-spacing: 0; font-size: 11px; }
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.tile { position: relative; display: grid; gap: 1px; padding: 6px 7px 5px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; min-width: 0; }
+.tile::after { content: ""; position: absolute; top: 7px; right: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--st, transparent); box-shadow: 0 0 6px var(--st, transparent); }
+.tile.good { --st: var(--good); } .tile.warn { --st: var(--warn); } .tile.bad { --st: var(--bad); }
+.tile .k { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; }
+.tile .v { font-family: var(--display); font-weight: 600; font-size: 24px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.tile .v small { font-size: 13px; color: var(--muted); margin-left: 1px; }
+.hud-head span { text-transform: none; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cta { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4px; padding: 16px; text-align: center; cursor: pointer;
+  background: radial-gradient(ellipse at center, rgba(63, 212, 255, .10), transparent 70%); }
+.cta .plus { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 50%; border: 2px solid var(--cyan); color: var(--cyan); font-size: 28px; line-height: 1; box-shadow: 0 0 18px rgba(63, 212, 255, .45); }
+.cta b { font-family: var(--display); font-size: 18px; letter-spacing: .04em; color: var(--ink); }
+.cta small { font-size: 11px; color: var(--muted); max-width: 26ch; }
+.btn.primary.pulse { animation: pulse 1.8s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 14px rgba(63, 212, 255, .35), 0 0 0 0 rgba(63, 212, 255, .6); } 70% { box-shadow: 0 0 14px rgba(63, 212, 255, .35), 0 0 0 8px rgba(63, 212, 255, 0); } }
+@media (prefers-reduced-motion: reduce) { .btn.primary.pulse { animation: none; } }
+.chip { flex: none; font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
+.chip.good { color: var(--good); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--bad); }
+#chart { width: 100%; height: 72px; display: block; cursor: pointer; }
+.legend { display: flex; gap: 10px; font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: -2px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 2px; margin-right: 4px; vertical-align: middle; background: var(--c); }
+.strip { display: flex; gap: 6px; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 2px; scrollbar-width: thin; }
+.stroke { flex: 0 0 104px; scroll-snap-align: start; display: grid; gap: 3px; padding: 0 0 4px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; cursor: pointer; text-align: left; }
+.stroke.on { border-color: var(--ball); }
+.stroke img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; background: #000; }
+.stroke .row1 { display: flex; justify-content: space-between; align-items: baseline; padding: 0 6px; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.stroke .row1 b { font-family: var(--display); font-size: 14px; color: var(--ball); font-weight: 700; }
+.stroke .row2 { padding: 0 6px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stroke .flag { color: var(--warn); }
+.empty { color: var(--muted); font-size: 12px; padding: 18px 0; }
+
+/* below the fold */
+.more { display: grid; gap: 8px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.more h2 { margin: 0; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; color: var(--muted); font-weight: 500; text-transform: uppercase; }
+.tips { list-style: none; margin: 0; padding: 0; display: grid; }
+.tip { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: start; padding-block: 7px; border-bottom: 1px solid var(--line); }
+.tips .empty { padding: 6px 0; }
+.tip:last-child { border-bottom: 0; }
+.tip b { font-weight: 500; }
+.tip p { grid-column: 2; margin: 0; color: var(--muted); font-size: 13px; }
+details { color: var(--muted); font-size: 13px; }
+details summary { cursor: pointer; color: var(--ink); }
+details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
+@media (prefers-reduced-motion: reduce) { .viewer .prog i { transition: none; } }
+</style>
+
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="brand"><b>PICKLE<i>/</i>POSE</b><span>參考用</span></div>
+    <button class="btn icon" id="gear" type="button" aria-expanded="false" aria-controls="settings" aria-label="分析設定">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+    </button>
+    <label class="btn primary pulse" id="importBtn" for="file">＋ 匯入影片</label>
+    <input type="file" id="file" accept="video/*">
+  </header>
+
+  <div class="settings" id="settings" hidden>
+    <label>慣用手
+      <select id="hand">
+        <option value="auto">自動判斷</option>
+        <option value="right">右手</option>
+        <option value="left">左手</option>
+      </select>
+    </label>
+    <label>鏡頭位置
+      <select id="view">
+        <option value="back">球員後方</option>
+        <option value="front">球員前方</option>
+        <option value="side-left">側面・網在左</option>
+        <option value="side-right">側面・網在右</option>
+      </select>
+    </label>
+    <label>取樣頻率
+      <select id="rate">
+        <option value="30">30 張/秒</option>
+        <option value="15">15 張/秒（快）</option>
+      </select>
+    </label>
+  </div>
+
+  <section aria-label="影片">
+    <div class="viewer" id="viewer">
+      <video id="video" playsinline muted preload="auto"></video>
+      <canvas id="overlay" tabindex="0" aria-label="骨架疊圖，點選球員可選擇分析對象"></canvas>
+      <i class="corner c1"></i><i class="corner c2"></i><i class="corner c3"></i><i class="corner c4"></i>
+      <div class="src" id="source"><em>SRC</em> 尚未匯入影片</div>
+      <label class="cta" id="cta" for="file"><span class="plus">＋</span><b>匯入影片</b><small>從相簿選一段對打影片・影片只在手機上分析，不會上傳</small></label>
+      <div class="hint" id="hint" hidden></div>
+      <div class="prog" aria-hidden="true"><i id="bar"></i></div>
+    </div>
+  </section>
+  <div class="ctrl">
+    <button class="btn icon" id="play" type="button" aria-label="播放">▶</button>
+    <div class="seg" role="group" aria-label="播放速度">
+      <button type="button" data-rate="0.25" aria-pressed="false">¼×</button>
+      <button type="button" data-rate="0.5" aria-pressed="true">½×</button>
+      <button type="button" data-rate="1" aria-pressed="false">1×</button>
+    </div>
+    <span class="time" id="time">0:00.0</span>
+    <button class="btn go" id="run" type="button" disabled>分析 ▸</button>
+  </div>
+  <div class="status" id="status" role="status">正在載入姿態模型…</div>
+
+  <section class="hud" aria-label="分析結果">
+    <div class="hud-head"><b>RESULT</b><span id="sumNote"></span></div>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section class="hud" id="advice" aria-labelledby="h-tips">
+    <div class="hud-head"><b id="h-tips">改進建議</b></div>
+    <ul class="tips" id="tips"><li class="empty">匯入影片並按「分析」後，這裡會列出改進建議。</li></ul>
+  </section>
+
+  <section class="hud" aria-labelledby="h-detail">
+    <div class="hud-head"><b id="h-detail">分析細節</b><span>時間軸點一下可跳轉・卡片點一下以 ¼ 速重播</span></div>
+    <canvas id="chart" tabindex="0" aria-label="膝蓋角度與手腕速度時間軸，點一下跳到該時間"></canvas>
+    <div class="strip" id="strokes"><p class="empty">分析後會列出每一拍的截圖。</p></div>
+  </section>
+
+  <section class="more">
+    <details>
+      <summary>怎麼拍效果最好、數字怎麼算</summary>
+      <ul>
+        <li>手機橫拍並固定（腳架或靠在圍網上），整個人從頭到腳都要在畫面內。</li>
+        <li>分析揮拍動作：從側面拍，鏡頭高度約腰到胸。分析站位與移動：從底線後方高處拍。</li>
+        <li>建議 1080p、每秒 60 格，片段 3 分鐘以內，手機分析比較順。</li>
+        <li>擊球偵測：慣用手手腕速度出現明顯高峰就算一拍。假動作或大幅度揮手也可能被算進去。</li>
+        <li>膝蓋角度是髖–膝–踝三點的 3D 夾角，站直約 175°，建議擊球時 130–155°。擊球點前後是單一鏡頭估計的深度，誤差較大。</li>
+        <li>雙打時畫面裡有多人：分析前在畫面上點一下要分析的球員；分析完暫停時點其他人，可以改分析他。</li>
+      </ul>
+    </details>
+  </section>
+</div>
+
+<video id="thumbVideo" muted playsinline preload="auto" aria-hidden="true" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></video>
+<script type="module">
+import { FilesetResolver, PoseLandmarker } from "./mp/vision_bundle.mjs";
+
+const $ = (id) => document.getElementById(id);
+const video = $("video"), thumbVideo = $("thumbVideo"), overlay = $("overlay"), octx = overlay.getContext("2d");
+const ui = { status: $("status"), bar: $("bar"), run: $("run"), file: $("file"), hint: $("hint") };
+
+let landmarker = null;
+let tsCounter = 0;            // detectForVideo needs strictly increasing timestamps across runs
+let result = null;            // { raw, anchor, settings, frames, strokes, summary, series, ... }
+let candidates = [];          // poses on the current frame, for picking the player before analysis
+let pickedIdx = -1;
+let videoURL = null;
+let analyzing = false;
+
+function setStatus(msg, err = false) { ui.status.textContent = msg; ui.status.classList.toggle("err", err); }
+function fmtT(t) { const m = Math.floor(t / 60); const s = t - m * 60; return `${m}:${s.toFixed(1).padStart(4, "0")}`; }
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+async function initModel() {
+  const fileset = await FilesetResolver.forVisionTasks(new URL("./mp/wasm", location.href).href);
+  // the .task model is served under a .wasm name (a binary type the host serves) and passed as bytes
+  const res = await fetch("./models/pose_full.task");
+  if (!res.ok) throw new Error(`模型下載失敗（${res.status}）`);
+  const model = new Uint8Array(await res.arrayBuffer());
+  const opts = (delegate) => ({
+    baseOptions: { modelAssetBuffer: model, delegate },
+    runningMode: "VIDEO", numPoses: 5,
+    minPoseDetectionConfidence: 0.4, minPosePresenceConfidence: 0.4, minTrackingConfidence: 0.4,
+  });
+  try { landmarker = await PoseLandmarker.createFromOptions(fileset, opts("GPU")); }
+  catch (e) { console.warn("GPU delegate failed, using CPU", e); landmarker = await PoseLandmarker.createFromOptions(fileset, opts("CPU")); }
+}
+
+// PURE-START (no DOM below until PURE-END; also run in tests)
+const IDX = { lSh: 11, rSh: 12, lWr: 15, rWr: 16, lHip: 23, rHip: 24 };
+const BONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28],[27,31],[28,32],[27,29],[28,30],[15,19],[16,20]];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+const norm = (v) => Math.hypot(v[0], v[1], v[2]);
+function angle3(a, b, c) {
+  const u = sub(a, b), v = sub(c, b);
+  const d = (u[0]*v[0] + u[1]*v[1] + u[2]*v[2]) / (norm(u) * norm(v) || 1);
+  return Math.acos(Math.max(-1, Math.min(1, d))) * 180 / Math.PI;
+}
+function hipCenter(lm, aspect) { return [(lm[23][0] + lm[24][0]) / 2 * aspect, (lm[23][1] + lm[24][1]) / 2]; }
+function bodyH(lm) { let a = 1e9, b = -1e9; for (const p of lm) { a = Math.min(a, p[1]); b = Math.max(b, p[1]); } return b - a; }
+function torsoLen(lm, aspect) {
+  const s = [(lm[11][0] + lm[12][0]) / 2 * aspect, (lm[11][1] + lm[12][1]) / 2], h = hipCenter(lm, aspect);
+  return Math.hypot(s[0] - h[0], s[1] - h[1]);
+}
+// A pose whose torso has collapsed is a detector glitch, not a real body position.
+function plausible(p, aspect) { return torsoLen(p.lm, aspect) > 0.22 * bodyH(p.lm); }
+function nearestPose(poses, pt, aspect) {
+  let bi = -1, bd = 1e9;
+  poses.forEach((p, i) => { const c = hipCenter(p.lm, aspect); const d = Math.hypot(c[0] - pt[0], c[1] - pt[1]); if (d < bd) { bd = d; bi = i; } });
+  return bi;
+}
+function largestPose(poses) { let bi = -1; poses.forEach((p, i) => { if (bi < 0 || bodyH(p.lm) > bodyH(poses[bi].lm)) bi = i; }); return bi; }
+
+// Follow one player through the clip, starting from raw[anchor.fi].poses[anchor.pi], going both ways.
+function trackPlayer(raw, anchor, aspect) {
+  const out = raw.map((r) => ({ t: r.t, lm: null, w: null }));
+  if (!raw.length || anchor.pi < 0 || !raw[anchor.fi].poses[anchor.pi]) return out;
+  const walk = (dir) => {
+    let prev = raw[anchor.fi].poses[anchor.pi], prevT = raw[anchor.fi].t;
+    for (let i = anchor.fi; i >= 0 && i < raw.length; i += dir) {
+      const poses = raw[i].poses;
+      let best = -1, bc = 1e9;
+      if (i === anchor.fi) best = anchor.pi;
+      else {
+        // torso length is a steadier size cue than full height (legs are often cut off or misplaced)
+        const pc = hipCenter(prev.lm, aspect), pt = torsoLen(prev.lm, aspect);
+        poses.forEach((p, k) => {
+          if (!plausible(p, aspect)) return;
+          const c = hipCenter(p.lm, aspect), tl = torsoLen(p.lm, aspect);
+          const vis = p.lm.reduce((a, q) => a + q[3], 0) / p.lm.length;
+          const cost = Math.hypot(c[0] - pc[0], c[1] - pc[1]) / pt + 0.8 * Math.abs(Math.log(tl / pt)) + 0.5 * (1 - vis);
+          if (cost < bc) { bc = cost; best = k; }
+        });
+        const gap = Math.abs(raw[i].t - prevT);
+        if (bc > 1.0 + 4 * gap) best = -1;   // the longer we lost them, the more we allow them to have moved
+      }
+      if (best >= 0) { prev = poses[best]; prevT = raw[i].t; out[i].lm = prev.lm; out[i].w = prev.w; }
+    }
+  };
+  walk(1); walk(-1);
+  return out;
+}
+
+function computeMetrics(frames, { hand, view, aspect }) {
+  const n = frames.length;
+  const ok = frames.map((f) => !!f.lm);
+  // wrist speed in torso lengths per second
+  const speed = (wi) => {
+    // only trust the wrist where the model actually sees it; hidden wrists are guesses that jump around
+    const pos = frames.map((f) => f.lm && f.lm[wi][3] >= 0.5 ? [f.lm[wi][0] * aspect, f.lm[wi][1]] : null);
+    const med3 = (a, b, c) => a + b + c - Math.max(a, b, c) - Math.min(a, b, c);
+    const sm = pos.map((p, i) => {
+      if (!p) return null;
+      const a = pos[i - 1], c = pos[i + 1];
+      return a && c ? [med3(a[0], p[0], c[0]), med3(a[1], p[1], c[1])] : p;
+    });
+    return sm.map((p, i) => {
+      if (!i || !p || !sm[i - 1]) return 0;
+      const dt = frames[i].t - frames[i - 1].t, tl = torsoLen(frames[i].lm, aspect);
+      return dt > 0 && dt < 0.2 && tl > 0 ? Math.hypot(p[0] - sm[i - 1][0], p[1] - sm[i - 1][1]) / dt / tl : 0;
+    });
+  };
+  const sR = speed(IDX.rWr), sL = speed(IDX.lWr);
+  if (hand === "auto") hand = sR.reduce((a, b) => a + b, 0) >= sL.reduce((a, b) => a + b, 0) ? "right" : "left";
+  const wi = hand === "left" ? IDX.lWr : IDX.rWr, sp = hand === "left" ? sL : sR;
+
+  // knee angle, with impossible values dropped and a 5-frame median to remove single-frame glitches
+  const kneeRaw = frames.map((f) => {
+    if (!f.w || f.lm[25][3] < 0.3 || f.lm[26][3] < 0.3) return null;
+    const k = (angle3(f.w[23], f.w[25], f.w[27]) + angle3(f.w[24], f.w[26], f.w[28])) / 2;
+    return k >= 70 ? k : null;
+  });
+  const knee = kneeRaw.map((k, i) => {
+    if (k == null) return null;
+    const w = kneeRaw.slice(Math.max(0, i - 2), i + 3).filter((v) => v != null).sort((a, b) => a - b);
+    return w[w.length >> 1];
+  });
+  // wrist height: 0 = hip line, 1 = shoulder line (image space)
+  const wristH = frames.map((f) => {
+    if (!f.lm) return null;
+    const hy = (f.lm[23][1] + f.lm[24][1]) / 2, sy = (f.lm[11][1] + f.lm[12][1]) / 2;
+    return (hy - f.lm[wi][1]) / ((hy - sy) || 1e-3);
+  });
+  const frontDist = frames.map((f) => {
+    if (!f.w) return null;
+    const hipM = mid(f.w[23], f.w[24]), w = f.w[wi];
+    if (view === "back") return w[2] - hipM[2];
+    if (view === "front") return hipM[2] - w[2];
+    if (view === "side-left") return hipM[0] - w[0];
+    return w[0] - hipM[0];
+  });
+  const stance = frames.map((f) => f.w ? norm(sub(f.w[27], f.w[28])) / (norm(sub(f.w[11], f.w[12])) || 1) : null);
+
+  // stroke detection: clear peaks in wrist speed
+  const vals = sp.filter((v, i) => ok[i] && v > 0).sort((a, b) => a - b);
+  const pct = (q) => vals.length ? vals[Math.min(vals.length - 1, Math.floor(q * vals.length))] : 0;
+  const thr = Math.max(3, pct(0.5) * 3);
+  const strokes = [];
+  for (let i = 1; i < n - 1; i++) {
+    if (sp[i] < thr) continue;
+    let isMax = true;
+    for (let j = i - 1; j >= 0 && frames[i].t - frames[j].t <= 0.25; j--) if (sp[j] > sp[i]) isMax = false;
+    for (let j = i + 1; j < n && frames[j].t - frames[i].t <= 0.25; j++) if (sp[j] >= sp[i]) isMax = false;
+    if (!isMax) continue;
+    if (strokes.length && frames[i].t - strokes[strokes.length - 1].t < 0.55) continue;
+    strokes.push({ fi: i, t: frames[i].t });
+  }
+  const around = (arr, i, r, fn) => {
+    const out = [];
+    for (let j = 0; j < n; j++) if (Math.abs(frames[j].t - frames[i].t) <= r && arr[j] != null) out.push(arr[j]);
+    return out.length ? fn(out) : null;
+  };
+  strokes.forEach((s, k) => {
+    s.i = k + 1;
+    s.knee = around(knee, s.fi, 0.15, (a) => Math.min(...a));
+    s.wristH = wristH[s.fi];
+    s.front = frontDist[s.fi];
+    s.speed = sp[s.fi];
+    s.kind = s.wristH == null ? "—" : s.wristH < 0.15 ? "低手擊球" : s.wristH > 1.1 ? "過肩擊球" : "腰胸高度";
+    s.contact = s.front == null ? "—" : s.front > 0.15 ? "身體前方" : s.front < -0.05 ? "身體後方" : "身體側邊";
+  });
+
+  // ready position: frames away from any stroke
+  const readyIdx = frames.map((_, i) => i).filter((i) => ok[i] && strokes.every((s) => Math.abs(s.t - frames[i].t) > 0.35));
+  const frac = (arr, fn) => { const v = arr.filter((x) => x != null); return v.length ? v.filter(fn).length / v.length : null; };
+  const avg = (a) => { const v = a.filter((x) => x != null); return v.length ? v.reduce((p, q) => p + q, 0) / v.length : null; };
+
+  return {
+    hand, view, duration: n ? frames[n - 1].t : 0,
+    coverage: ok.filter(Boolean).length / (n || 1),
+    frames, series: { knee, speed: sp, thr },
+    strokes,
+    summary: {
+      strokes: strokes.length,
+      kneeAtContact: avg(strokes.map((s) => s.knee)),
+      readyPaddleUp: frac(readyIdx.map((i) => wristH[i]), (h) => h >= 0.25),
+      readyKneeBent: frac(readyIdx.map((i) => knee[i]), (k) => k < 165),
+      frontRate: frac(strokes.map((s) => s.front), (d) => d > 0.15),
+      stance: avg(readyIdx.map((i) => stance[i])),
+      wristSeen: frac(frames.filter((f) => f.lm).map((f) => f.lm[wi][3]), (v) => v >= 0.5),
+      kinds: strokes.reduce((m, s) => (m[s.kind] = (m[s.kind] || 0) + 1, m), {}),
+    },
+  };
+}
+// PURE-END
+
+const pack = (arr, n) => arr.map((p) => n === 4 ? [+p.x.toFixed(4), +p.y.toFixed(4), +p.z.toFixed(3), +(p.visibility ?? 0).toFixed(2)] : [+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)]);
+const aspectOf = () => video.videoWidth / video.videoHeight || 16 / 9;
+
+// ---------- video helpers ----------
+function seekEl(el, t) {
+  return new Promise((res) => {
+    const done = () => { el.removeEventListener("seeked", done); res(); };
+    el.addEventListener("seeked", done);
+    el.currentTime = t;
+  });
+}
+const seek = (t) => seekEl(video, t);
+function waitFrame() {
+  return new Promise((res) => {
+    if (!video.requestVideoFrameCallback) return requestAnimationFrame(() => res(null));
+    let fired = false;
+    video.requestVideoFrameCallback((_, meta) => { fired = true; res(meta.mediaTime); });
+    setTimeout(() => { if (!fired) res(null); }, 120);
+  });
+}
+// Every detection goes through one fixed-size canvas, so the model always sees the same image size.
+// focus = { c: [x, y], h } in normalized video coords: zoom in on that player; null = whole frame.
+const CANVAS = 960;
+const work = document.createElement("canvas"); work.width = work.height = CANVAS;
+const wctx = work.getContext("2d");
+function detect(focus = null) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  let sx = 0, sy = 0, sw = vw, sh = vh;
+  if (focus) {
+    sw = sh = Math.min(vw, vh, Math.max(vh * 0.4, focus.h * vh * 2.2));
+    sx = Math.max(0, Math.min(vw - sw, focus.c[0] * vw - sw / 2));
+    sy = Math.max(0, Math.min(vh - sh, focus.c[1] * vh - sh * 0.45));
+  }
+  const k = CANVAS / Math.max(sw, sh), dw = sw * k, dh = sh * k, dx = (CANVAS - dw) / 2, dy = (CANVAS - dh) / 2;
+  wctx.fillStyle = "#000"; wctx.fillRect(0, 0, CANVAS, CANVAS);
+  wctx.drawImage(video, sx, sy, sw, sh, dx, dy, dw, dh);
+  tsCounter += 34;
+  const r = landmarker.detectForVideo(work, tsCounter);
+  const back = (q) => ({ x: (sx + (q.x * CANVAS - dx) / k) / vw, y: (sy + (q.y * CANVAS - dy) / k) / vh, z: q.z, visibility: q.visibility });
+  return r.landmarks.map((p, i) => ({ lm: pack(p.map(back), 4), w: pack(r.worldLandmarks[i], 3) }));
+}
+function sizeOverlay() {
+  const r = overlay.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  overlay.width = Math.round(r.width * dpr); overlay.height = Math.round(r.height * dpr);
+}
+function setViewerAspect() {
+  const v = $("viewer");
+  if (video.videoWidth) {
+    const a = video.videoWidth / video.videoHeight;
+    v.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+    // keep the video to ~36% of the screen height so the results stay on the first screen (portrait clips too)
+    const maxH = Math.max(170, window.innerHeight * 0.33);
+    v.style.width = `${Math.min(v.parentElement.clientWidth, maxH * a)}px`;
+  }
+  sizeOverlay();
+}
+
+// ---------- drawing ----------
+function drawPose(ctx, lm, w, h, { color, arm, alpha = 1, width = 3 }) {
+  ctx.save(); ctx.globalAlpha = alpha; ctx.lineCap = "round"; ctx.lineWidth = width;
+  for (const [a, b] of BONES) {
+    if (lm[a][3] !== undefined && (lm[a][3] < 0.2 || lm[b][3] < 0.2)) continue;
+    const isArm = arm && arm.includes(a) && arm.includes(b);
+    ctx.strokeStyle = isArm ? css("--ball") : color;
+    ctx.beginPath(); ctx.moveTo(lm[a][0] * w, lm[a][1] * h); ctx.lineTo(lm[b][0] * w, lm[b][1] * h); ctx.stroke();
+  }
+  ctx.fillStyle = color;
+  for (const i of [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]) {
+    ctx.beginPath(); ctx.arc(lm[i][0] * w, lm[i][1] * h, width * 1.1, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+const armIdx = (hand) => hand === "left" ? [11, 13, 15, 19] : [12, 14, 16, 20];
+
+function frameIndexAt(t) {
+  const f = result.frames; if (!f.length) return -1;
+  let lo = 0, hi = f.length - 1;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (f[m].t < t) lo = m + 1; else hi = m; }
+  const best = lo > 0 && Math.abs(f[lo - 1].t - t) < Math.abs(f[lo].t - t) ? lo - 1 : lo;
+  return Math.abs(f[best].t - t) < 0.12 ? best : -1;
+}
+function renderOverlay() {
+  const w = overlay.width, h = overlay.height; octx.clearRect(0, 0, w, h);
+  const lw = Math.max(2, w / 260);
+  if (result && !analyzing) {
+    const fi = frameIndexAt(video.currentTime);
+    if (fi >= 0) {
+      if (video.paused) for (const p of result.raw[fi].poses) if (p.lm !== result.frames[fi].lm) drawPose(octx, p.lm, w, h, { color: "#7d8f97", alpha: 0.55, width: lw * 0.8 });
+      const fr = result.frames[fi];
+      if (fr.lm) drawPose(octx, fr.lm, w, h, { color: css("--cyan"), arm: armIdx(result.hand), width: lw });
+    }
+    const s = result.strokes.find((s) => Math.abs(s.t - video.currentTime) < 0.1);
+    if (s) {
+      octx.font = `700 ${lw * 6}px ${css("--body")}`; octx.fillStyle = css("--ball");
+      octx.fillText(`HIT #${s.i}・${s.kind}`, lw * 8, h - lw * 8);
+    }
+  } else if (candidates.length) {
+    candidates.forEach((lm, i) => drawPose(octx, lm, w, h, { color: i === pickedIdx ? css("--cyan") : "#7d8f97", alpha: i === pickedIdx ? 1 : 0.6, width: lw }));
+  }
+  $("time").textContent = fmtT(video.currentTime || 0);
+}
+let rafOn = false;
+function loop() { renderOverlay(); if (!video.paused) requestAnimationFrame(loop); else rafOn = false; }
+video.addEventListener("play", () => { $("play").textContent = "❚❚"; $("play").setAttribute("aria-label", "暫停"); if (!rafOn) { rafOn = true; requestAnimationFrame(loop); } });
+video.addEventListener("pause", () => { $("play").textContent = "▶"; $("play").setAttribute("aria-label", "播放"); renderOverlay(); });
+video.addEventListener("seeked", () => { if (!analyzing) { renderOverlay(); drawChart(); } });
+$("play").addEventListener("click", () => { video.paused ? video.play() : video.pause(); });
+document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => setRate(+b.dataset.rate)));
+function setRate(r) {
+  video.playbackRate = r;
+  document.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-pressed", String(+x.dataset.rate === r)));
+}
+window.addEventListener("resize", () => { setViewerAspect(); renderOverlay(); drawChart(); });
+$("gear").addEventListener("click", () => { const st = $("settings"); st.hidden = !st.hidden; $("gear").setAttribute("aria-expanded", String(!st.hidden)); });
+
+// ---------- picking the player ----------
+async function previewPeople() {
+  if (!landmarker || !video.videoWidth) return;
+  await waitFrame();
+  candidates = detect().map((p) => p.lm);
+  pickedIdx = largestPose(candidates.map((lm) => ({ lm })));
+  showHint(candidates.length > 1
+    ? `畫面中有 ${candidates.length} 人，預設分析最大（最近）的那位。要換人就點他，再按「開始分析」。`
+    : candidates.length === 1 ? "已找到球員，按「開始分析」。" : "這一格沒找到人。可以先播放到球員完整入鏡的時間點，再按「開始分析」。");
+  renderOverlay();
+}
+function showHint(msg) { ui.hint.textContent = msg; ui.hint.hidden = !msg; }
+overlay.addEventListener("click", async (e) => {
+  if (analyzing) return;
+  const r = overlay.getBoundingClientRect(), aspect = aspectOf();
+  const pt = [(e.clientX - r.left) / r.width * aspect, (e.clientY - r.top) / r.height];
+  if (!result) {
+    if (!candidates.length) return;
+    pickedIdx = nearestPose(candidates.map((lm) => ({ lm })), pt, aspect);
+    renderOverlay(); return;
+  }
+  if (!video.paused) { video.pause(); return; }
+  // paused on an analysed clip: tapping another person re-tracks the analysis on them
+  const fi = frameIndexAt(video.currentTime);
+  if (fi < 0) { video.play(); return; }
+  const poses = result.raw[fi].poses, pi = nearestPose(poses, pt, aspect);
+  if (pi < 0 || poses[pi].lm === result.frames[fi].lm) { video.play(); return; }
+  const c = hipCenter(poses[pi].lm, aspect);
+  if (Math.hypot(c[0] - pt[0], c[1] - pt[1]) > 0.25) { video.play(); return; }
+  rebuild({ fi, pi });
+  setStatus(`已改為分析 ${fmtT(result.raw[fi].t)} 時點選的球員。`);
+});
+
+// ---------- loading a video ----------
+ui.file.addEventListener("change", async () => {
+  const f = ui.file.files[0]; if (!f) return;
+  if (videoURL) URL.revokeObjectURL(videoURL);
+  $("cta").hidden = true; $("importBtn").classList.remove("pulse");
+  videoURL = URL.createObjectURL(f);
+  result = null; candidates = []; pickedIdx = -1;
+  clearResults();
+  $("source").innerHTML = `<em>SRC</em> <span></span>`; $("source").querySelector("span").textContent = f.name;
+  video.src = videoURL; thumbVideo.src = videoURL;
+  try {
+    await new Promise((res, rej) => { video.onloadeddata = res; video.onerror = () => rej(new Error("這個影片格式無法播放，請換一段影片。")); });
+  } catch (e) { setStatus(e.message, true); return; }
+  setViewerAspect();
+  await seek(Math.min(0.5, video.duration / 2));
+  ui.run.disabled = !landmarker;
+  setStatus(`影片 ${fmtT(video.duration)} · ${landmarker ? "點選球員後按「分析」" : "模型載入中…"}`);
+  previewPeople();
+});
+
+// ---------- analysis ----------
+ui.run.addEventListener("click", runAnalysis);
+async function runAnalysis() {
+  if (!landmarker || !video.duration) return;
+  analyzing = true; ui.run.disabled = true; showHint(""); video.pause();
+  const step = 1 / +$("rate").value, aspect = aspectOf();
+  const anchorT = video.currentTime, anchorLm = candidates[pickedIdx] || null;
+  const raw = [];
+  let lastMedia = null, lastSig = null, focus = null, seenAt = -1;
+  if (anchorLm) { focus = { c: hipCenter(anchorLm, 1), h: bodyH(anchorLm) }; seenAt = anchorT; }
+  const t0 = performance.now();
+  // sample slightly off the frame grid so float rounding never lands two samples on one frame
+  for (let t = step * 0.37; t < video.duration; t += step) {
+    await seek(t);
+    const media = await waitFrame();
+    if (media != null && media === lastMedia) continue;
+    lastMedia = media;
+    // zoom on the player while we know where they are; fall back to the whole frame when lost
+    const zoom = focus && Math.abs(t - seenAt) < 0.6;
+    let poses = zoom ? detect(focus) : [];
+    if (!poses.length) poses = detect();
+    const pi = focus ? nearestPose(poses, focus.c, 1) : largestPose(poses);
+    if (pi >= 0 && (!focus || Math.hypot(...hipCenter(poses[pi].lm, 1).map((v, j) => v - focus.c[j])) < 0.25)) {
+      focus = { c: hipCenter(poses[pi].lm, 1), h: Math.max(0.12, bodyH(poses[pi].lm)) }; seenAt = t;
+    }
+    const sig = poses.length ? poses[0].lm[0].join() : "";
+    if (sig && sig === lastSig) continue;            // same frame decoded twice
+    lastSig = sig;
+    raw.push({ t: +t.toFixed(3), poses });
+    const p = t / video.duration;
+    ui.bar.style.width = `${(p * 100).toFixed(1)}%`;
+    if (raw.length % 5 === 0) {
+      const el = (performance.now() - t0) / 1000;
+      setStatus(`分析中 ${(p * 100).toFixed(0)}% · 剩約 ${Math.max(1, Math.round(el / p - el))} 秒`);
+      octx.clearRect(0, 0, overlay.width, overlay.height);
+      for (const q of poses) drawPose(octx, q.lm, overlay.width, overlay.height, { color: css("--cyan"), width: Math.max(2, overlay.width / 260) });
+    }
+  }
+  ui.bar.style.width = "100%";
+  // anchor: the person the user picked, in the raw frame closest to where they picked
+  let anchor = { fi: 0, pi: -1 };
+  if (raw.length) {
+    let fi = 0; raw.forEach((r, i) => { if (Math.abs(r.t - anchorT) < Math.abs(raw[fi].t - anchorT)) fi = i; });
+    if (anchorLm) anchor = { fi, pi: nearestPose(raw[fi].poses, hipCenter(anchorLm, aspect), aspect) };
+    if (anchor.pi < 0) {
+      fi = raw.findIndex((r) => r.poses.length);
+      if (fi >= 0) anchor = { fi, pi: largestPose(raw[fi].poses) };
+    }
+  }
+  analyzing = false; ui.run.disabled = false;
+  result = { raw, aspect, settings: { hand: $("hand").value, view: $("view").value } };
+  await rebuild(anchor);
+  setStatus(`完成 · ${raw.length} 張畫面 · ${((performance.now() - t0) / 1000).toFixed(0)} 秒 · 暫停時點別人可改分析他`);
+  await seek(0);
+}
+// track + metrics + UI, from the stored raw detections (no re-detection needed)
+async function rebuild(anchor) {
+  const { raw, aspect, settings } = result;
+  const frames = trackPlayer(raw, anchor, aspect);
+  Object.assign(result, computeMetrics(frames, { ...settings, aspect }), { anchor });
+  renderAll(); renderOverlay();
+  await makeThumbs();
+}
+async function makeThumbs() {
+  const r = result;
+  if (!thumbVideo.src) return;
+  if (thumbVideo.readyState < 2) await new Promise((res) => { thumbVideo.addEventListener("loadeddata", res, { once: true }); setTimeout(res, 5000); });
+  for (const s of r.strokes) {
+    if (result !== r) return;
+    const lm = r.frames[s.fi].lm; if (!lm) continue;
+    await seekEl(thumbVideo, s.t);
+    s.thumb = cropThumb(thumbVideo, lm, r.hand);
+    const img = document.querySelector(`.stroke[data-i="${s.i}"] img`); if (img) img.src = s.thumb;
+  }
+}
+function cropThumb(el, lm, hand) {
+  const vw = el.videoWidth, vh = el.videoHeight;
+  let x0 = 1, x1 = 0, y0 = 1, y1 = 0;
+  for (const p of lm) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
+  const ch = Math.min(vh, (y1 - y0) * vh * 1.2), cw = Math.min(vw, ch * 16 / 10);
+  const cx = (x0 + x1) / 2 * vw, cy = (y0 + y1) / 2 * vh;
+  const sx = Math.max(0, Math.min(vw - cw, cx - cw / 2)), sy = Math.max(0, Math.min(vh - ch, cy - ch / 2));
+  const c = document.createElement("canvas"); c.width = 256; c.height = 160;
+  const ctx = c.getContext("2d"); ctx.drawImage(el, sx, sy, cw, ch, 0, 0, 256, 160);
+  const local = lm.map((p) => [(p[0] * vw - sx) / cw, (p[1] * vh - sy) / ch, p[2], p[3]]);
+  drawPose(ctx, local, 256, 160, { color: css("--cyan"), arm: armIdx(hand), width: 2.5 });
+  return c.toDataURL("image/jpeg", 0.75);
+}
+$("hand").addEventListener("change", () => { if (result && !analyzing) { result.settings.hand = $("hand").value; rebuild(result.anchor); } });
+$("view").addEventListener("change", () => { if (result && !analyzing) { result.settings.view = $("view").value; rebuild(result.anchor); } });
+
+// ---------- results UI ----------
+function renderEmpty() {
+  $("sumNote").textContent = "";
+  $("tiles").innerHTML = ["擊球", "擊球屈膝", "拍在腰上", "擊球在前"].map((k) => `<div class="tile"><span class="k">${k}</span><span class="v">—</span></div>`).join("");
+  $("tips").innerHTML = `<li class="empty">匯入影片並按「分析」後，這裡會列出改進建議。</li>`;
+  $("strokes").innerHTML = `<p class="empty">分析後會列出每一拍的截圖。</p>`;
+  $("chart").hidden = true;
+}
+function clearResults() {
+  renderEmpty();
+  const c = $("chart"); c.getContext("2d").clearRect(0, 0, c.width, c.height);
+}
+const pctTxt = (x) => x == null ? "—" : Math.round(x * 100);
+function renderAll() {
+  const S = result.summary;
+  $("sumNote").textContent = `${result.hand === "left" ? "左手" : "右手"} · 追蹤 ${pctTxt(result.coverage)}%`;
+  const lv = (v, good, warn) => v == null ? "" : good(v) ? "good" : warn(v) ? "warn" : "bad";
+  const tiles = [
+    ["擊球", S.strokes, "", S.strokes ? "good" : "warn"],
+    ["擊球屈膝", S.kneeAtContact == null ? "—" : Math.round(S.kneeAtContact), "°", lv(S.kneeAtContact, (k) => k <= 152, (k) => k <= 160)],
+    ["拍在腰上", pctTxt(S.readyPaddleUp), "%", lv(S.readyPaddleUp, (p) => p >= 0.75, (p) => p >= 0.5)],
+    ["擊球在前", pctTxt(S.frontRate), "%", lv(S.frontRate, (p) => p >= 0.5, (p) => p >= 0.3)],
+  ];
+  $("tiles").innerHTML = tiles.map(([k, v, u, st]) =>
+    `<div class="tile ${st}"><span class="k">${k}</span><span class="v">${v}${v === "—" ? "" : `<small>${u}</small>`}</span></div>`).join("");
+  const tips = makeTips(result);
+  // most important first: needs work, then could improve, then the rest
+  const rank = { bad: 0, warn: 1, good: 2 };
+  tips.sort((a, b) => rank[a.level] - rank[b.level]);
+  $("tips").innerHTML = tips.map((t) => `<li class="tip"><span class="chip ${t.level}">${t.label}</span><b>${t.title}</b><p>${t.body}</p></li>`).join("");
+  $("chart").hidden = false;
+  renderStrokes(); drawChart();
+}
+function makeTips(r) {
+  const S = r.summary, tips = [];
+  if (!S.strokes) {
+    tips.push({ level: "warn", label: "資料不足", title: "沒有偵測到擊球動作", body: "試試更長的片段、讓球員全身入鏡，或在分析前點選正確的球員。" });
+    return tips;
+  }
+  if (S.kneeAtContact != null) {
+    const k = Math.round(S.kneeAtContact);
+    if (k > 160) tips.push({ level: "bad", label: "需改進", title: `擊球時膝蓋偏直（平均 ${k}°）`, body: "重心太高時，低球和 dink 容易下網或彈太高。擊球前先蹲低，膝蓋彎到約 130–155°，用腿把身體帶到球的高度，不要只彎腰。" });
+    else if (k > 152) tips.push({ level: "warn", label: "可加強", title: `擊球時屈膝還可以再多一點（平均 ${k}°）`, body: "再降低一點重心，處理低球會更穩。" });
+    else tips.push({ level: "good", label: "做得好", title: `擊球時有屈膝（平均 ${k}°）`, body: "重心夠低，保持住。" });
+  }
+  if (S.readyPaddleUp != null) {
+    const p = Math.round(S.readyPaddleUp * 100);
+    if (p < 50) tips.push({ level: "bad", label: "需改進", title: `擊球之間拍子常放在腰部以下（只有 ${p}% 的時間在腰以上）`, body: "在廚房線前對拍或對手準備擊球時，把拍頭舉在胸前，拍面朝前。這樣截擊和快速抽球的反應時間會短很多。" });
+    else if (p < 75) tips.push({ level: "warn", label: "可加強", title: `準備時拍子高度不夠穩定（${p}% 的時間在腰以上）`, body: "每打完一拍就把拍子收回胸前，養成習慣。" });
+    else tips.push({ level: "good", label: "做得好", title: `準備時拍子多半保持在腰部以上（${p}%）`, body: "準備姿勢不錯。" });
+  }
+  if (S.readyKneeBent != null && S.readyKneeBent < 0.5)
+    tips.push({ level: "warn", label: "可加強", title: `準備時常常站直（只有 ${Math.round(S.readyKneeBent * 100)}% 的時間有屈膝）`, body: "等球時膝蓋微彎、重心放在前腳掌，啟動會比較快。" });
+  if (S.frontRate != null) {
+    const p = Math.round(S.frontRate * 100);
+    if (p < 50) tips.push({ level: "warn", label: "參考", title: `約 ${100 - p}% 的擊球點不在身體前方`, body: "提早轉身、提早把拍子準備好，讓擊球點落在身體前方。這一項是用單一鏡頭估計深度，請搭配「每一拍」的重播自己確認。" });
+    else tips.push({ level: "good", label: "參考", title: `多數擊球點在身體前方（${p}%）`, body: "單鏡頭估計，僅供參考。" });
+  }
+  if (S.stance != null && S.stance < 1.1)
+    tips.push({ level: "warn", label: "可加強", title: `準備時站姿偏窄（腳距約為肩寬的 ${S.stance.toFixed(1)} 倍）`, body: "雙腳打開到比肩膀稍寬，左右移動和低球都會比較好處理。" });
+  if (S.wristSeen != null && S.wristSeen < 0.6)
+    tips.push({ level: "warn", label: "注意", title: `慣用手只有 ${pctTxt(S.wristSeen)}% 的時間看得清楚`, body: r.view === "back"
+      ? "從球員正後方拍時，持拍手常被身體擋住，擊球次數和擊球高度會不準。想看揮拍動作，建議從側面拍。"
+      : "手常被擋住或出鏡，擊球相關的數字會不準。調整鏡頭位置，讓持拍手一直在畫面內。" });
+  if (r.coverage < 0.6)
+    tips.push({ level: "warn", label: "注意", title: `只有 ${pctTxt(r.coverage)}% 的畫面有找到這位球員`, body: "球員常出鏡或被遮住，結果可能不準。鏡頭盡量拍到全身並固定不動。" });
+  return tips;
+}
+function renderStrokes() {
+  const box = $("strokes");
+  if (!result.strokes.length) { box.innerHTML = `<p class="empty">沒有偵測到擊球。試試側面拍攝的影片。</p>`; return; }
+  box.innerHTML = "";
+  for (const s of result.strokes) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "stroke"; b.dataset.i = s.i;
+    const kneeTxt = s.knee == null ? "—" : `${Math.round(s.knee)}°`;
+    b.innerHTML = `<img alt="第 ${s.i} 拍的骨架截圖" src="${s.thumb || "data:image/gif;base64,R0lGODlhAQABAAAAACw="}">
+      <div class="row1"><b>#${s.i}</b><span>${fmtT(s.t)}</span></div>
+      <div class="row2">${s.kind.slice(0, 2)} · <span class="${s.knee > 160 ? "flag" : ""}">屈膝 ${kneeTxt}</span></div>`;
+    b.addEventListener("click", () => { document.querySelectorAll(".stroke.on").forEach((x) => x.classList.remove("on")); b.classList.add("on"); replay(s.t); });
+    box.appendChild(b);
+  }
+}
+async function replay(t) {
+  video.pause(); setRate(0.25);
+  await seek(Math.max(0, t - 0.7));
+  if ($("viewer").getBoundingClientRect().top < 0) $("viewer").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  video.play().catch(() => {});
+  const stop = () => { if (video.currentTime > t + 0.6) { video.pause(); video.removeEventListener("timeupdate", stop); } };
+  video.addEventListener("timeupdate", stop);
+}
+
+function drawChart() {
+  const c = $("chart"); if (!result || !result.frames || !result.frames.length) return;
+  const dpr = window.devicePixelRatio || 1, r = c.getBoundingClientRect();
+  c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
+  const ctx = c.getContext("2d"); ctx.scale(dpr, dpr);
+  const W = r.width, H = r.height, padL = 28, padR = 4, padT = 14, padB = 14;
+  const iw = W - padL - padR, ih = H - padT - padB, T = result.duration || 1;
+  const x = (t) => padL + t / T * iw;
+  const kMin = 90, kMax = 180, yk = (k) => padT + (1 - (k - kMin) / (kMax - kMin)) * ih;
+  const sp = result.series.speed, fr = result.frames;
+  const sMax = Math.max(result.series.thr * 1.5, ...sp) || 1, ys = (s) => padT + (1 - Math.min(s, sMax) / sMax) * ih;
+  ctx.font = `9px ${css("--mono")}`; ctx.fillStyle = css("--muted"); ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
+  for (const k of [90, 135, 180]) {
+    ctx.beginPath(); ctx.moveTo(padL, yk(k)); ctx.lineTo(W - padR, yk(k)); ctx.stroke();
+    ctx.textAlign = "right"; ctx.fillText(`${k}°`, padL - 3, yk(k) + 3);
+  }
+  ctx.textAlign = "center";
+  const tick = T > 60 ? 15 : T > 20 ? 5 : T > 8 ? 2 : 1;
+  for (let t = 0; t <= T + 1e-6; t += tick) ctx.fillText(`${t}s`, x(t), H - 2);
+  // wrist speed area
+  ctx.beginPath(); ctx.moveTo(x(fr[0].t), ys(0));
+  fr.forEach((f, i) => ctx.lineTo(x(f.t), ys(sp[i])));
+  ctx.lineTo(x(fr[fr.length - 1].t), ys(0)); ctx.closePath();
+  ctx.fillStyle = css("--muted"); ctx.globalAlpha = 0.28; ctx.fill(); ctx.globalAlpha = 1;
+  // knee angle line, with a soft glow
+  ctx.strokeStyle = css("--cyan"); ctx.lineWidth = 1.6; ctx.shadowColor = css("--cyan"); ctx.shadowBlur = 6;
+  ctx.beginPath(); let pen = false;
+  result.series.knee.forEach((k, i) => { if (k == null) { pen = false; return; } const kk = Math.max(kMin, Math.min(kMax, k)); pen ? ctx.lineTo(x(fr[i].t), yk(kk)) : ctx.moveTo(x(fr[i].t), yk(kk)); pen = true; });
+  ctx.stroke(); ctx.shadowBlur = 0;
+  // detected strokes
+  ctx.fillStyle = css("--ball"); ctx.strokeStyle = css("--ball"); ctx.lineWidth = 1;
+  for (const s of result.strokes) {
+    ctx.globalAlpha = 0.6; ctx.beginPath(); ctx.moveTo(x(s.t), padT); ctx.lineTo(x(s.t), padT + ih); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.moveTo(x(s.t) - 4, padT - 2); ctx.lineTo(x(s.t) + 4, padT - 2); ctx.lineTo(x(s.t), padT + 4); ctx.closePath(); ctx.fill();
+  }
+  // legend, drawn into the chart to save a row
+  ctx.textAlign = "right"; ctx.font = `9px ${css("--mono")}`;
+  [["擊球", "--ball"], ["手腕速度", "--muted"], ["膝蓋角度", "--cyan"]].reduce((xr, [lab, tok]) => {
+    ctx.fillStyle = css(tok); ctx.fillText(lab, xr, 8); ctx.fillRect(xr - ctx.measureText(lab).width - 10, 4, 7, 2);
+    return xr - ctx.measureText(lab).width - 18;
+  }, W - padR - 2);
+  // playhead
+  ctx.strokeStyle = css("--ink"); ctx.lineWidth = 1; ctx.beginPath();
+  ctx.moveTo(x(Math.min(T, video.currentTime || 0)), padT); ctx.lineTo(x(Math.min(T, video.currentTime || 0)), padT + ih); ctx.stroke();
+  c._map = { padL, iw, T };
+}
+$("chart").addEventListener("click", async (e) => {
+  const m = $("chart")._map; if (!m) return;
+  const r = $("chart").getBoundingClientRect();
+  video.pause(); await seek(Math.max(0, Math.min(m.T, (e.clientX - r.left - m.padL) / m.iw * m.T)));
+});
+video.addEventListener("timeupdate", () => { if (result && !analyzing) drawChart(); });
+
+// ---------- startup ----------
+renderEmpty();
+window.__exportResult = () => JSON.stringify({ raw: result.raw, aspect: result.aspect, settings: result.settings, anchor: result.anchor });
+window.__summary = () => ({ summary: result.summary, thr: result.series.thr, coverage: result.coverage, strokes: result.strokes.map(({ thumb, ...s }) => s) });
+initModel().then(() => {
+  setStatus(videoURL ? `模型就緒 · 點選球員後按「分析」` : "模型就緒 · 按「匯入影片」開始");
+  if (videoURL && video.readyState >= 2) { ui.run.disabled = false; previewPeople(); }
+  window.__ready = true;
+}).catch((e) => { console.error(e); setStatus(`姿態模型載入失敗：${e.message || e}。請重新整理頁面再試一次。`, true); });
+</script>
+
+</body>
+</html>

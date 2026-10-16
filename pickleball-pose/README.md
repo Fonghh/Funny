@@ -14,6 +14,16 @@
 - `index.html`：整個 App（HTML、CSS、JS）
 - `fetch_assets.sh`：下載 MediaPipe 執行檔（`mp/`）與姿態模型（`models/`），這些檔案太大，沒有放進 git
 
+## 網站（GitHub Pages）
+網址：https://fonghh.github.io/Funny/
+
+`docs/` 是發布用的網站，由 `build_pages.py` 產生：把 `index.html` 包成完整網頁、加上「加入主畫面」用的圖示和 manifest，並把 MediaPipe 執行檔和模型一起放進去（不依賴外部 CDN）。改完 `index.html` 後：
+```bash
+./fetch_assets.sh        # 第一次才需要
+python3 build_pages.py   # 重新產生 ../docs
+```
+GitHub 設定：Settings → Pages → Deploy from a branch → `claude/pickleball-pose`、資料夾 `/docs`。
+
 ## 本機執行
 ```bash
 ./fetch_assets.sh
