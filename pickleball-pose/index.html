@@ -258,12 +258,11 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
   </section>
 </div>
 
-<video id="thumbVideo" muted playsinline preload="auto" aria-hidden="true" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></video>
 <script type="module">
 import { FilesetResolver, PoseLandmarker } from "./mp/vision_bundle.mjs";
 
 const $ = (id) => document.getElementById(id);
-const video = $("video"), thumbVideo = $("thumbVideo"), overlay = $("overlay"), octx = overlay.getContext("2d");
+const video = $("video"), overlay = $("overlay"), octx = overlay.getContext("2d");
 const ui = { status: $("status"), bar: $("bar"), run: $("run"), file: $("file"), hint: $("hint") };
 
 let landmarker = null;
@@ -805,8 +804,10 @@ const aspectOf = () => video.videoWidth / video.videoHeight || 16 / 9;
 // ---------- video helpers ----------
 function seekEl(el, t) {
   return new Promise((res) => {
-    const done = () => { el.removeEventListener("seeked", done); res(); };
+    let timer = 0;
+    const done = () => { clearTimeout(timer); el.removeEventListener("seeked", done); res(); };
     el.addEventListener("seeked", done);
+    timer = setTimeout(done, 3000);
     el.currentTime = t;
   });
 }
@@ -979,24 +980,24 @@ ui.file.addEventListener("change", async () => {
   if (videoURL) URL.revokeObjectURL(videoURL);
   $("cta").hidden = true; $("importBtn").classList.remove("pulse");
   videoURL = URL.createObjectURL(f);
-  result = null; candidates = []; pickedIdx = -1; previewCourt = null;
+  result = null; candidates = []; pickedIdx = -1; previewCourt = null; ui.run.textContent = "分析 ▸";
   clearResults();
   $("source").innerHTML = `<em>SRC</em> <span></span>`; $("source").querySelector("span").textContent = f.name;
-  video.src = videoURL; thumbVideo.src = videoURL;
+  video.src = videoURL;
   try {
     await new Promise((res, rej) => { video.onloadeddata = res; video.onerror = () => rej(new Error("這個影片格式無法播放，請換一段影片。")); });
   } catch (e) { setStatus(e.message, true); return; }
   setViewerAspect();
   await seek(Math.min(0.5, video.duration / 2));
   ui.run.disabled = !landmarker;
-  setStatus(`影片 ${fmtT(video.duration)} · ${landmarker ? "點選球員後按「分析」" : "模型載入中…"}`);
-  previewPeople();
+  setStatus(`影片 ${fmtT(video.duration)} · ${landmarker ? "開始分析…" : "模型載入中，好了會自動開始分析…"}`);
+  if (landmarker) { await previewPeople(); runAnalysis(); }
 });
 
 // ---------- analysis ----------
-ui.run.addEventListener("click", runAnalysis);
+ui.run.addEventListener("click", async () => { if (analyzing) return; result = null; await previewPeople(); runAnalysis(); });
 async function runAnalysis() {
-  if (!landmarker || !video.duration) return;
+  if (!landmarker || !video.duration || analyzing) return;
   analyzing = true; ui.run.disabled = true; showHint(""); video.pause();
   const step = 1 / +$("rate").value, aspect = aspectOf();
   const anchorT = video.currentTime, anchorLm = candidates[pickedIdx] || null;
@@ -1050,8 +1051,9 @@ async function runAnalysis() {
   }
   analyzing = false; ui.run.disabled = false;
   result = { raw, aspect, courtKeys, settings: { hand: $("hand").value, view: $("view").value } };
+  ui.run.textContent = "重新分析";
   await rebuild(anchor);
-  setStatus(`完成 · ${raw.length} 張畫面 · ${((performance.now() - t0) / 1000).toFixed(0)} 秒 · 暫停時點別人可改分析他`);
+  setStatus(`完成 · ${raw.length} 張畫面 · ${((performance.now() - t0) / 1000).toFixed(0)} 秒 · 分析錯人？暫停後點他`);
   await seek(0);
 }
 // track + metrics + UI, from the stored raw detections (no re-detection needed)
@@ -1062,36 +1064,44 @@ async function rebuild(anchor) {
   result.position = positionMetrics(result.frames, result.courtKeys);
   poseSel = 0;
   renderAll(); renderOverlay();
-  enqueue(drawPoseCompare);
-  await enqueue(makeThumbs);
+  shots.clear();
+  await captureShots(result);
+  if (!result) return;
+  makeThumbs(); drawPoseCompare();
 }
-// thumbVideo is shared by the stroke thumbnails and the pose comparison, so its seeks run one at a time
-let videoQueue = Promise.resolve();
-function enqueue(fn) { videoQueue = videoQueue.then(fn).catch((e) => console.warn(e)); return videoQueue; }
-async function makeThumbs() {
-  const r = result;
-  if (!thumbVideo.src) return;
-  if (thumbVideo.readyState < 2) await new Promise((res) => { thumbVideo.addEventListener("loadeddata", res, { once: true }); setTimeout(res, 5000); });
-  for (const s of r.strokes) {
+// Frames for the thumbnails and the pose comparison are grabbed from the main video, one seek at a time.
+// (A hidden second video would be simpler, but iOS Safari never loads it.)
+const shots = new Map();     // frame index -> { canvas, sx, sy, sw, sh } with the crop in normalized frame coords
+async function captureShots(r) {
+  const need = [...new Set(poseMoments().map((m) => m.fi))].filter((fi) => r.frames[fi]?.lm && !shots.has(fi));
+  if (!need.length) return;
+  const back = video.currentTime; video.pause();
+  for (const fi of need) {
     if (result !== r) return;
-    const lm = r.frames[s.fi].lm; if (!lm) continue;
-    await seekEl(thumbVideo, s.t);
-    s.thumb = cropThumb(thumbVideo, lm, r.hand);
-    const img = document.querySelector(`.stroke[data-i="${s.i}"] img`); if (img) img.src = s.thumb;
+    await seek(r.frames[fi].t); await waitFrame();
+    shots.set(fi, grabCrop(r.frames[fi].lm));
   }
+  await seek(back);
 }
-function cropThumb(el, lm, hand) {
-  const vw = el.videoWidth, vh = el.videoHeight;
+function grabCrop(lm) {
+  const vw = video.videoWidth, vh = video.videoHeight;
   let x0 = 1, x1 = 0, y0 = 1, y1 = 0;
   for (const p of lm) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
-  const ch = Math.min(vh, (y1 - y0) * vh * 1.2), cw = Math.min(vw, ch * 16 / 10);
-  const cx = (x0 + x1) / 2 * vw, cy = (y0 + y1) / 2 * vh;
-  const sx = Math.max(0, Math.min(vw - cw, cx - cw / 2)), sy = Math.max(0, Math.min(vh - ch, cy - ch / 2));
-  const c = document.createElement("canvas"); c.width = 256; c.height = 160;
-  const ctx = c.getContext("2d"); ctx.drawImage(el, sx, sy, cw, ch, 0, 0, 256, 160);
-  const local = lm.map((p) => [(p[0] * vw - sx) / cw, (p[1] * vh - sy) / ch, p[2], p[3]]);
-  drawPose(ctx, local, 256, 160, { color: css("--blue"), width: 2.5 });
-  return c.toDataURL("image/jpeg", 0.75);
+  const ch = Math.min(vh, (y1 - y0) * vh * 1.45), cw = Math.min(vw, ch * 4 / 3);
+  const sx = Math.max(0, Math.min(vw - cw, (x0 + x1) / 2 * vw - cw / 2)), sy = Math.max(0, Math.min(vh - ch, (y0 + y1) / 2 * vh - ch / 2));
+  const canvas = document.createElement("canvas"); canvas.width = 720; canvas.height = 540;
+  canvas.getContext("2d").drawImage(video, sx, sy, cw, ch, 0, 0, 720, 540);
+  return { canvas, sx: sx / vw, sy: sy / vh, sw: cw / vw, sh: ch / vh };
+}
+function makeThumbs() {
+  for (const s of result.strokes) {
+    const shot = shots.get(s.fi), lm = result.frames[s.fi].lm; if (!shot || !lm) continue;
+    const c = document.createElement("canvas"); c.width = 256; c.height = 192;
+    const ctx = c.getContext("2d"); ctx.drawImage(shot.canvas, 0, 0, 256, 192);
+    drawPose(ctx, lm.map((p) => [(p[0] - shot.sx) / shot.sw, (p[1] - shot.sy) / shot.sh, p[2], p[3]]), 256, 192, { color: css("--blue"), width: 2.5 });
+    s.thumb = c.toDataURL("image/jpeg", 0.75);
+    const img = document.querySelector(`.stroke[data-i="${s.i}"] img`); if (img) img.src = s.thumb;
+  }
 }
 $("hand").addEventListener("change", () => { if (result && !analyzing) { result.settings.hand = $("hand").value; rebuild(result.anchor); } });
 $("view").addEventListener("change", () => { if (result && !analyzing) { result.settings.view = $("view").value; rebuild(result.anchor); } });
@@ -1109,13 +1119,13 @@ function renderPoseTabs() {
   m.forEach((x, i) => {
     const b = document.createElement("button"); b.type = "button"; b.role = "tab"; b.textContent = x.label;
     b.setAttribute("aria-selected", String(i === poseSel));
-    b.addEventListener("click", () => { poseSel = i; box.querySelectorAll("button").forEach((y, j) => y.setAttribute("aria-selected", String(j === i))); enqueue(drawPoseCompare); });
+    b.addEventListener("click", () => { poseSel = i; box.querySelectorAll("button").forEach((y, j) => y.setAttribute("aria-selected", String(j === i))); drawPoseCompare(); });
     box.appendChild(b);
   });
   $("poseCanvas").hidden = !m.length;
   if (!m.length) $("poseFix").innerHTML = `<li class="empty">沒有足夠的畫面可以比較姿勢。</li>`;
 }
-async function drawPoseCompare() {
+function drawPoseCompare() {
   const r = result; if (!r) return;
   const m = poseMoments()[poseSel]; if (!m) return;
   const f = r.frames[m.fi]; if (!f || !f.lm) return;
@@ -1123,17 +1133,13 @@ async function drawPoseCompare() {
   const fixKnee = knee != null && knee > 155, fixWrist = m.kind === "ready" && wh != null && wh < 0.25;
   const hand = r.hand === "left" ? 15 : 16;
   const sug = fixKnee || fixWrist ? suggestPose(f.lm, r.aspect, { kneeTarget: fixKnee ? 140 : null, wristUp: fixWrist, hand, view: r.view }) : null;
-  if (thumbVideo.readyState < 2) await new Promise((res) => { thumbVideo.addEventListener("loadeddata", res, { once: true }); setTimeout(res, 5000); });
-  await seekEl(thumbVideo, f.t);
-  if (result !== r) return;
-  const c = $("poseCanvas"), ctx = c.getContext("2d"), W = thumbVideo.videoWidth, H = thumbVideo.videoHeight;
-  let x0 = 1, x1 = 0, y0 = 1, y1 = 0;
-  for (const q of sug ? [...f.lm, ...sug] : f.lm) { x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); }
-  const ch = Math.min(H, (y1 - y0) * H * 1.3), cw = Math.min(W, ch * c.width / c.height);
-  const sx = Math.max(0, Math.min(W - cw, (x0 + x1) / 2 * W - cw / 2)), sy = Math.max(0, Math.min(H - ch, (y0 + y1) / 2 * H - ch / 2));
-  ctx.drawImage(thumbVideo, sx, sy, cw, ch, 0, 0, c.width, c.height);
+  const shot = shots.get(m.fi);
+  const c = $("poseCanvas"), ctx = c.getContext("2d");
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, c.width, c.height);
+  if (!shot) { ctx.fillStyle = css("--muted"); ctx.font = `24px ${css("--body")}`; ctx.fillText("畫面載入中…", 24, 48); return; }
+  ctx.drawImage(shot.canvas, 0, 0, c.width, c.height);
   ctx.fillStyle = "rgba(5,7,9,.35)"; ctx.fillRect(0, 0, c.width, c.height);
-  const map = (q) => [(q[0] * W - sx) / cw * c.width, (q[1] * H - sy) / ch * c.height];
+  const map = (q) => [(q[0] - shot.sx) / shot.sw * c.width, (q[1] - shot.sy) / shot.sh * c.height];
   const skel = (lm, color, dash) => {
     ctx.save(); ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 5; ctx.lineCap = "round"; ctx.shadowColor = color; ctx.shadowBlur = 10;
     if (dash) ctx.setLineDash([14, 9]);
@@ -1384,7 +1390,7 @@ window.__exportResult = () => JSON.stringify({ raw: result.raw, aspect: result.a
 window.__summary = () => ({ courtKeys: result.courtKeys?.length, position: result.position && { zones: result.position.zones, reachSec: result.position.reachSec, n: result.position.pts.length }, summary: result.summary, thr: result.series.thr, coverage: result.coverage, strokes: result.strokes.map(({ thumb, ...s }) => s) });
 initModel().then(() => {
   setStatus(videoURL ? `模型就緒 · 點選球員後按「分析」` : "模型就緒 · 按「匯入影片」開始");
-  if (videoURL && video.readyState >= 2) { ui.run.disabled = false; previewPeople(); }
+  if (videoURL && video.readyState >= 2 && !result && !analyzing) { ui.run.disabled = false; previewPeople().then(runAnalysis); }
   window.__ready = true;
 }).catch((e) => { console.error(e); setStatus(`姿態模型載入失敗：${e.message || e}。請重新整理頁面再試一次。`, true); });
 </script>
