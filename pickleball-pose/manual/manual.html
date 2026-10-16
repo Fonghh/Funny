@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>PicklePose 操作說明書</title>
+<link rel="stylesheet" href="fonts/local.css">
+<style>
+@page { size: A4; margin: 16mm 15mm 16mm 15mm; }
+:root {
+  --ink: #16212a; --muted: #5b6b74; --line: #d6dee2; --soft: #f2f6f8;
+  --cyan: #0b87ad; --yellow: #a88600; --orange: #c46a00; --red: #c23440; --green: #1f8a5c;
+  --body: "Noto Sans TC", "WenQuanYi Zen Hei", sans-serif; --display: "Chakra Petch", "Noto Sans TC", sans-serif; --mono: "JetBrains Mono", monospace;
+}
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; font-family: var(--body); color: var(--ink); font-size: 10.5pt; line-height: 1.65; }
+h1, h2, h3 { line-height: 1.3; text-wrap: balance; }
+h2 { font-size: 17pt; margin: 0 0 3mm; padding-bottom: 2mm; border-bottom: 2px solid var(--ink); display: flex; align-items: baseline; gap: 3mm; }
+h2 .no { font-family: var(--display); color: var(--cyan); font-size: 15pt; }
+h2.score .no { color: var(--yellow); }
+h3 { font-size: 12.5pt; margin: 5mm 0 1.5mm; }
+p { margin: 0 0 2mm; }
+ul, ol { margin: 0 0 2mm; padding-left: 5.5mm; }
+li { margin-bottom: 1mm; }
+b { font-weight: 700; }
+.chapter { break-before: page; }
+.keep { break-inside: avoid; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); }
+
+/* cover */
+.cover { height: 260mm; display: flex; flex-direction: column; justify-content: space-between; }
+.cover .brand { font-family: var(--display); font-weight: 700; font-size: 34pt; letter-spacing: .04em; margin-top: 30mm; }
+.cover .brand i { font-style: normal; color: var(--cyan); }
+.cover .title { font-size: 26pt; font-weight: 700; margin: 4mm 0 2mm; }
+.cover .sub { font-size: 12pt; color: var(--muted); max-width: 140mm; }
+.cover .urls { display: grid; gap: 3mm; margin-top: 12mm; }
+.cover .url { display: grid; grid-template-columns: 26mm 1fr; align-items: baseline; padding: 3mm 4mm; border: 1px solid var(--line); border-radius: 3mm; }
+.cover .url b { font-size: 11pt; }
+.cover .url span { font-family: var(--mono); font-size: 11pt; }
+.cover .foot { font-size: 9pt; color: var(--muted); border-top: 1px solid var(--line); padding-top: 3mm; }
+.tag { display: inline-block; font-size: 8.5pt; font-weight: 700; padding: 0 2mm; border-radius: 1.5mm; border: 1px solid currentColor; vertical-align: 1px; }
+.tag.c { color: var(--cyan); } .tag.y { color: var(--yellow); } .tag.o { color: var(--orange); } .tag.r { color: var(--red); } .tag.g { color: var(--green); }
+
+/* contents */
+.toc { list-style: none; padding: 0; display: grid; gap: 1.5mm; font-size: 11pt; }
+.toc li { display: flex; gap: 3mm; }
+.toc .n { font-family: var(--display); color: var(--cyan); width: 8mm; }
+
+/* layout helpers */
+.two { display: grid; grid-template-columns: 62mm 1fr; gap: 6mm; align-items: start; }
+.two.wide { grid-template-columns: 1fr 1fr; }
+.shot { width: 100%; border-radius: 2.5mm; border: 1px solid var(--line); display: block; }
+.shot.phone { max-width: 62mm; }
+.cap { font-size: 8.5pt; color: var(--muted); margin-top: 1mm; text-align: center; }
+.steps { counter-reset: s; list-style: none; padding: 0; display: grid; gap: 2mm; }
+.steps > li { counter-increment: s; position: relative; padding-left: 8.5mm; margin: 0; }
+.steps > li::before { content: counter(s); position: absolute; left: 0; top: .5mm; font-family: var(--display); font-weight: 700; color: #fff; background: var(--cyan); width: 6mm; height: 6mm; border-radius: 50%; display: grid; place-items: center; font-size: 9.5pt; line-height: 1; }
+.score-ch .steps > li::before { background: var(--yellow); }
+.box { padding: 3mm 4mm; border-radius: 2.5mm; background: var(--soft); border: 1px solid var(--line); margin: 2mm 0 3mm; }
+.box.warn { background: #fff6ea; border-color: #f0d2a8; }
+.box.tip { background: #eaf6fa; border-color: #b9dfeb; }
+.box h4 { margin: 0 0 1mm; font-size: 10.5pt; }
+table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin: 1mm 0 3mm; }
+th, td { border-bottom: 1px solid var(--line); padding: 1.6mm 2mm; text-align: left; vertical-align: top; }
+th { background: var(--soft); font-weight: 700; }
+td.k { white-space: nowrap; font-weight: 700; }
+.call { font-family: var(--display); font-weight: 700; font-size: 13pt; }
+</style>
+</head>
+<body>
+
+<!-- ============ cover ============ -->
+<section class="cover">
+  <div>
+    <div class="brand">PICKLE<i>/</i>POSE</div>
+    <div class="title">匹克球動作分析與即時計分<br>操作說明書</div>
+    <p class="sub">用 iPhone 的瀏覽器就能使用：錄好的影片做「賽後分析」，看動作和站位哪裡可以改進；比賽時用手機鏡頭「即時計分」，並自動錄下每一球。</p>
+    <div class="urls">
+      <div class="url"><b>賽後分析</b><span>https://fonghh.github.io/Funny/</span></div>
+      <div class="url"><b>即時計分</b><span>https://fonghh.github.io/Funny/score.html</span></div>
+    </div>
+  </div>
+  <div class="foot">所有分析都在你的手機上進行，影片不會上傳到任何地方。分析結果與自動判斷僅供參考。<br>版本：2026 年 10 月</div>
+</section>
+
+<!-- ============ contents ============ -->
+<section class="chapter">
+  <h2>目錄</h2>
+  <ol class="toc">
+    <li><span class="n">01</span>開始使用：需要什麼、加入主畫面、兩個頁面怎麼切換</li>
+    <li><span class="n">02</span>賽後分析：拍攝建議、匯入影片、看懂分析結果</li>
+    <li><span class="n">03</span>即時計分：架設手機、開始計分、自動判斷與手動修正</li>
+    <li><span class="n">04</span>錄影與「我的比賽」：每一球的影片、存到相簿、在賽後分析打開</li>
+    <li><span class="n">05</span>計分規則與判斷方式</li>
+    <li><span class="n">06</span>常見問題與注意事項</li>
+  </ol>
+
+  <h2 style="margin-top:10mm"><span class="no">01</span>開始使用</h2>
+  <h3>需要什麼</h3>
+  <ul>
+    <li>iPhone（建議 iPhone 12 以後的機型），使用 <b>Safari</b> 打開網址。</li>
+    <li>網路：只有第一次打開時需要下載。賽後分析頁約 28MB（含 AI 姿態模型），即時計分頁約 50KB；之後瀏覽器會快取。</li>
+    <li>即時計分需要：手機腳架或可以把手機固定在圍網上的夾具。</li>
+  </ul>
+  <h3>加入主畫面（建議）</h3>
+  <ol class="steps">
+    <li>用 Safari 打開 <span class="mono">https://fonghh.github.io/Funny/</span>。</li>
+    <li>按下方的「分享」按鈕，選「加入主畫面」。</li>
+    <li>主畫面會出現黃色匹克球圖示，之後點它就會全螢幕開啟，像一般 App 一樣。</li>
+  </ol>
+  <div class="box tip"><h4>為什麼建議加入主畫面</h4>錄下來的比賽影片存在網站裡。Safari 可能清掉「7 天沒打開」的網站資料，加入主畫面後比較不容易被清。</div>
+  <div class="keep">
+  <h3>兩個頁面怎麼切換</h3>
+  <div class="two">
+    <div><img class="shot phone" src="img/a_home.png" style="max-height:100mm;object-fit:cover;object-position:top"><div class="cap">右上角的切換鈕</div></div>
+    <div>
+      <p>兩個頁面右上角都有同一組切換鈕：</p>
+      <ul>
+        <li><b style="color:var(--cyan)">賽後分析</b>：目前在這頁時為青色實心。</li>
+        <li><b style="color:var(--yellow)">即時計分</b>：目前在這頁時為黃色實心。</li>
+      </ul>
+      <p>點另一個名稱就會切換頁面。</p>
+      <div class="box"><h4>看到的還是舊版？</h4>網站更新後，手機有時會顯示快取的舊版。往下拉重新整理即可；若是從主畫面開啟，先把 App 從多工畫面滑掉再重開。</div>
+    </div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ 02 analysis ============ -->
+<section class="chapter">
+  <h2><span class="no">02</span>賽後分析</h2>
+  <p>匯入一段影片，系統會用 AI 找出球員的骨架，分析擊球、屈膝、準備姿勢與站位，並給出改進建議。</p>
+
+  <h3>拍攝建議</h3>
+  <table class="keep">
+    <tr><th>想看什麼</th><th>手機放哪裡</th><th>說明</th></tr>
+    <tr><td class="k">揮拍動作</td><td>球員<b>側面</b>，高度約腰到胸</td><td>最能看出屈膝、擊球點；建議的紅色骨架差異也最明顯</td></tr>
+    <tr><td class="k">站位與移動</td><td><b>底線後方、架高</b></td><td>要拍到球場白線，才能畫出站位熱圖</td></tr>
+    <tr><td class="k">通用</td><td>橫拍、固定不動</td><td>1080p、每秒 60 格；片段 3 分鐘以內較順；球員要全身入鏡</td></tr>
+  </table>
+
+  <h3>操作步驟</h3>
+  <ol class="steps">
+    <li>點影片區中間的「<b>＋ 匯入影片</b>」，從相簿選一段影片。</li>
+    <li><b>自動開始分析</b>，不需要按其他按鈕。狀態列會顯示進度，16 秒的影片約 30 到 50 秒完成。</li>
+    <li>畫面中有多人時，預設分析最近（畫面最大）的那位。分析錯人：<b>暫停影片，點你要的那位</b>，結果會立刻重算。</li>
+    <li>要換一段影片：點影片右上角的「<b>換影片</b>」。</li>
+    <li>右上角的設定鈕（三條線圖示）可以調整：慣用手、鏡頭位置、取樣頻率。</li>
+  </ol>
+  <div class="box tip">影片只在手機上分析，不會上傳。</div>
+</section>
+
+<section class="chapter">
+  <h2><span class="no">02</span>看懂分析結果</h2>
+  <div class="two">
+    <div><img class="shot phone" src="img/a_results.png"><div class="cap">結果數字與改進建議</div></div>
+    <div>
+      <h3 style="margin-top:0">結果數字列（RESULT）</h3>
+      <table>
+        <tr><th>項目</th><th>意思</th></tr>
+        <tr><td class="k">擊球</td><td>偵測到幾次擊球</td></tr>
+        <tr><td class="k">擊球屈膝</td><td>擊球時膝蓋的平均角度。站直約 175°，建議 130 到 155°</td></tr>
+        <tr><td class="k">拍在腰上</td><td>擊球之間，拍子在腰部以上的時間比例</td></tr>
+        <tr><td class="k">擊球在前</td><td>擊球點在身體前方的比例（單鏡頭估計，僅供參考）</td></tr>
+      </table>
+      <p>右上角的小圓點：<span style="color:var(--green)">●</span> 做得好、<span style="color:var(--orange)">●</span> 可加強、<span style="color:var(--red)">●</span> 需改進。</p>
+      <h3>改進建議</h3>
+      <p>依重要程度排序：<span class="tag r">需改進</span> → <span class="tag o">注意</span> / <span class="tag o">可加強</span> → <span class="tag g">參考</span> / <span class="tag g">做得好</span>。每條建議都有具體的改法。</p>
+    </div>
+  </div>
+
+  <div class="two" style="margin-top:4mm">
+    <div><img class="shot phone" src="img/a_pose.png"><div class="cap">姿勢對照</div></div>
+    <div>
+      <h3 style="margin-top:0">姿勢對照（藍色是你，紅色是建議）</h3>
+      <ul>
+        <li><b style="color:#2d6fd6">藍色實線</b>：影片中你實際的骨架。</li>
+        <li><b style="color:var(--red)">紅色虛線</b>：建議姿勢。用你自己的骨架調整，例如膝蓋彎到 140°、持拍手舉到胸前。</li>
+        <li>上方按鈕切換時間點：「準備姿勢」會自動挑問題最明顯的那一刻；「擊球 #1、#2…」是每一拍。</li>
+        <li>從背後拍時屈膝的變化不明顯，紅藍兩條線會幾乎重疊；側面拍的差異最清楚。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="chapter">
+  <h2><span class="no">02</span>看懂分析結果（續）</h2>
+  <div class="two">
+    <div><img class="shot phone" src="img/a_court.png"><div class="cap">站位分析</div></div>
+    <div>
+      <h3 style="margin-top:0">站位分析</h3>
+      <ul>
+        <li>系統<b>自動辨識球場白線</b>，把你每一刻的腳步位置換算到「從上方看的球場」。</li>
+        <li><b>熱圖</b>：紅色是待最久的地方，藍色是只經過的地方。</li>
+        <li><b>白線軌跡</b>：從起點到終點的移動路線。</li>
+        <li><b>四區比例</b>：廚房內、廚房線前、過渡區、底線區各待了多久。</li>
+        <li>畫面中看不到球場白線時，這一區會顯示「沒有辨識到球場」，其他分析照常。</li>
+      </ul>
+      <h3>分析細節</h3>
+      <ul>
+        <li><b>時間軸</b>：青線是膝蓋角度、灰色是手腕速度、黃色三角是擊球；點一下跳到該時間。</li>
+        <li><b>每一拍卡片</b>：點卡片以 ¼ 速重播那一拍。</li>
+      </ul>
+    </div>
+  </div>
+  <img class="shot" src="img/a_detail.png" style="max-width:95mm;margin-top:3mm">
+  <div class="cap" style="max-width:95mm">時間軸與每一拍卡片</div>
+</section>
+
+<!-- ============ 03 scoring ============ -->
+<section class="chapter score-ch">
+  <h2 class="score"><span class="no">03</span>即時計分</h2>
+  <p>用手機鏡頭邊錄邊算：系統自動找球、判斷每一球誰贏，用<b>雙打傳統計分</b>（只有發球方能得分，0-0-2 開局）。</p>
+  <img class="shot" src="img/s_live.png">
+  <div class="cap">即時計分畫面（橫放）：左邊是鏡頭與球的軌跡，右邊是比分與手動修正區</div>
+
+  <h3>架設手機</h3>
+  <ol class="steps">
+    <li>手機<b>橫放</b>，架在<b>底線後方</b>，越高越好（腳架或綁在圍網上）。</li>
+    <li>畫面要拍到<b>整面球場</b>；拍攝中不要移動手機。</li>
+    <li>建議拆掉手機殼、避免陽光直射，長時間使用可接行動電源。</li>
+  </ol>
+
+  <h3>開始計分</h3>
+  <ol class="steps">
+    <li>打開「即時計分」，先在下方<b>設定</b>選好先發球的隊、局分、球場線類型（見下一頁）。</li>
+    <li>按「<b>開啟鏡頭開始計分</b>」，第一次會詢問相機權限，請允許。</li>
+    <li>畫面出現<b>青色虛線</b>代表球場已辨識。沒對準就按「重新校正球場」。</li>
+    <li>開始打球。狀態標籤會顯示「LIVE · 等待發球」→「RALLY · 進行中」。</li>
+  </ol>
+</section>
+
+<section class="chapter score-ch">
+  <h2 class="score"><span class="no">03</span>自動判斷與手動修正</h2>
+  <h3>每一球結束時</h3>
+  <ol class="steps">
+    <li>球消失約 2 秒後，系統判定這一球結束，跳出黃色框，例如「<b>遠端（B 隊）贏這球？</b>」並附上原因。</li>
+    <li><b>5 秒內</b>沒有動作就自動確認（秒數可在設定改）。</li>
+    <li>判斷錯了按「<b>改判</b>」；系統看不清楚時會請你手動選。</li>
+  </ol>
+  <div class="two" style="margin-top:3mm">
+    <div><img class="shot phone" src="img/s_board.png"><div class="cap">比分與手動修正區</div></div>
+    <div>
+      <h3 style="margin-top:0">看懂比分</h3>
+      <p><span class="call">4-2-1</span> ＝ 發球方分數－接發方分數－第幾號發球員。</p>
+      <p>正在發球的隊伍外框是黃色，並顯示「● 發球 1 號／2 號」。</p>
+      <h3>手動修正區（橘色虛線框）</h3>
+      <table>
+        <tr><td class="k" style="color:var(--orange)">近端／遠端贏這球</td><td>直接手動計分，隨時可用</td></tr>
+        <tr><td class="k" style="color:var(--orange)">↶ 上一步</td><td>取消上一分</td></tr>
+        <tr><td class="k" style="color:var(--cyan)">⇄ 交換場地</td><td>兩隊換邊時按，系統會記得哪一隊在近端</td></tr>
+        <tr><td class="k" style="color:var(--red)">新局</td><td>儲存目前這局，開始新的一局</td></tr>
+      </table>
+      <p class="muted">近端＝靠近手機的那一邊；遠端＝球網另一邊。</p>
+    </div>
+  </div>
+  <h3>設定</h3>
+  <table>
+    <tr><th>設定</th><th>選項</th><th>說明</th></tr>
+    <tr><td class="k">先發球</td><td>A 隊／B 隊</td><td>第一分還沒打之前改，立刻生效</td></tr>
+    <tr><td class="k">局分</td><td>11／15／21 分</td><td>領先 2 分才算贏</td></tr>
+    <tr><td class="k">球場線</td><td>匹克球場／羽球場改打</td><td>依場地選擇，球場辨識會比較穩定</td></tr>
+    <tr><td class="k">錄影</td><td>只錄每一球／不錄影</td><td>見第 04 章</td></tr>
+    <tr><td class="k">往前保留</td><td>1／3／5 秒（預設 3 秒）</td><td>每一球的影片從偵測到球之前幾秒開始錄</td></tr>
+    <tr><td class="k">自動確認</td><td>5 秒／8 秒／不自動</td><td>自動判斷跳出後，等多久自動確認</td></tr>
+  </table>
+</section>
+
+<!-- ============ 04 recording ============ -->
+<section class="chapter score-ch">
+  <h2 class="score"><span class="no">04</span>錄影與「我的比賽」</h2>
+  <h3>錄影怎麼運作</h3>
+  <ul>
+    <li>預設<b>只錄每一球</b>：從偵測到球的<b>前 3 秒</b>開始，錄到這一球結束後約 3 秒。每一球存成一段影片。</li>
+    <li>影片右上角的紅色 <b>● REC</b> 顯示已錄幾球、用了多少空間。</li>
+    <li>空間估算（720p）：一局 20 分鐘、25 球，約 220MB。</li>
+  </ul>
+  <h3>結束比賽</h3>
+  <div class="two">
+    <div><img class="shot phone" src="img/rec_summary.png" style="object-fit:cover;object-position:top;max-height:120mm"><div class="cap">結束比賽後的摘要</div></div>
+    <div>
+      <ol class="steps">
+        <li>按「<b>結束比賽並儲存</b>」，出現比賽摘要。</li>
+        <li><b>在賽後分析查看</b>：切到賽後分析頁並打開這場比賽。</li>
+        <li><b>存到相簿</b>：跳出 iPhone 分享選單，選「儲存影片」，每一球存成一段影片。</li>
+      </ol>
+      <div class="box warn"><h4>重要的比賽請存到相簿</h4>影片存在網站裡，Safari 可能在網站 7 天沒打開後清掉。</div>
+    </div>
+  </div>
+  <h3>在賽後分析看「我的比賽」</h3>
+  <div class="two">
+    <div><img class="shot phone" src="img/rec_matches.png" style="object-fit:cover;object-position:top;max-height:62mm"><div class="cap">我的比賽</div></div>
+    <div>
+      <ul>
+        <li>賽後分析頁會出現「<b>我的比賽</b>」，列出最近的比賽：日期、比分、錄了幾球。</li>
+        <li>打開一場後，每一球是一張卡片：哪隊贏、當時比分、影片長度（A 隊青色、B 隊黃色）。</li>
+        <li><b>點某一球</b>：載入影片並自動做動作分析。</li>
+        <li><b>連續播放每一球</b>：一球接一球播放，適合快速看精華。</li>
+        <li><b>刪除這場</b>：連按兩次才會刪除。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 05 rules ============ -->
+<section class="chapter">
+  <h2><span class="no">05</span>計分規則與判斷方式</h2>
+  <h3>傳統雙打計分（side-out）</h3>
+  <table class="keep">
+    <tr><th>情況</th><th>結果</th></tr>
+    <tr><td class="k">發球方贏這球</td><td>發球方加 1 分，同一位繼續發球</td></tr>
+    <tr><td class="k">發球方輸，目前是 1 號</td><td>換隊友（2 號）發球，不加分</td></tr>
+    <tr><td class="k">發球方輸，目前是 2 號</td><td>換對方發球（side out），從 1 號開始</td></tr>
+    <tr><td class="k">開局</td><td>0-0-2：先發球的隊只有一次發球權</td></tr>
+    <tr><td class="k">獲勝</td><td>先到局分（11／15／21）且領先 2 分</td></tr>
+  </table>
+  <h3>系統怎麼判斷誰贏這一球</h3>
+  <ol class="steps">
+    <li><b>找球</b>：找畫面中黃色、黃綠色、會移動的小色塊，連成軌跡。</li>
+    <li><b>找落地點</b>：軌跡在畫面上「往下再彈回來」的最低點就是落地，換算成球場位置，判斷界內或界外。</li>
+    <li><b>看最後一次落地</b>：
+      <table style="margin-top:1.5mm">
+        <tr><th>最後落地</th><th>判斷</th></tr>
+        <tr><td class="k">某一邊的界內</td><td>那一邊沒接回 → <b>那一邊輸</b>（打下網的球也會掉在自己這邊）</td></tr>
+        <tr><td class="k">某一邊的界外</td><td>對面打出界 → <b>那一邊贏</b></td></tr>
+        <tr><td class="k">沒看到落地</td><td>請使用者手動選</td></tr>
+      </table>
+    </li>
+  </ol>
+  <h3>動作分析怎麼算</h3>
+  <ul>
+    <li>骨架：Google MediaPipe 姿態模型，每張畫面找出 33 個關節點。</li>
+    <li>擊球：慣用手手腕速度出現明顯高峰就算一拍。</li>
+    <li>膝蓋角度：髖、膝、踝三點的 3D 夾角。</li>
+    <li>擊球點前後：用單一鏡頭估計深度，誤差最大。</li>
+  </ul>
+</section>
+
+<!-- ============ 06 FAQ ============ -->
+<section class="chapter">
+  <h2><span class="no">06</span>常見問題與注意事項</h2>
+  <table>
+    <tr><th style="width:42%">問題</th><th>怎麼辦</th></tr>
+    <tr><td>網站更新了，手機看到的還是舊版</td><td>往下拉重新整理；從主畫面開啟的話，把 App 滑掉再重開</td></tr>
+    <tr><td>匯入影片後沒反應</td><td>等狀態列從「讀取影片中」變成「分析中」；超過 10 秒沒動，重新整理再匯入一次</td></tr>
+    <tr><td>姿勢對照的紅色骨架看不太出來</td><td>從背後拍時差異本來就小，改從側面拍</td></tr>
+    <tr><td>沒有站位分析</td><td>畫面要拍到球員那一側的球場白線</td></tr>
+    <tr><td>即時計分沒畫出青色球場線</td><td>確認整面場入鏡、手機架穩，在設定選對「球場線」類型，按「重新校正球場」</td></tr>
+    <tr><td>一直沒偵測到球、或判斷常錯</td><td>手機架高一點；球要是黃色或黃綠色；判錯就用「改判」或手動修正區</td></tr>
+    <tr><td>發球前拍球被當成一球</td><td>太短的會自動忽略；若跳出判斷，手動選或按「上一步」</td></tr>
+    <tr><td>手機很燙</td><td>拆殼、避開陽光、不要邊充電邊用、可加散熱夾；iPhone 過熱時會降低鏡頭張數，嚴重時相機會停止（已存的球不會不見）</td></tr>
+    <tr><td>錄好的比賽不見了</td><td>Safari 可能清掉 7 天沒打開的網站資料；重要比賽請馬上「存到相簿」，並把網站加入主畫面</td></tr>
+  </table>
+
+  <h3>目前判斷不到的情況</h3>
+  <ul>
+    <li>球打到球員身體、廚房內截擊犯規、腳踩線等規則判定：請手動計分。</li>
+    <li>球拍本身偵測不到，動作分析用手腕位置代替。</li>
+    <li>沒偵測到的球不會被錄影。</li>
+  </ul>
+
+  <h3>隱私與用量</h3>
+  <ul>
+    <li>影片和比賽紀錄都只存在你的手機瀏覽器裡，不會上傳。</li>
+    <li>網站放在 GitHub Pages，免費；每位使用者只有第一次打開需要下載。</li>
+    <li>所有分析結果與自動判斷都僅供參考。</li>
+  </ul>
+</section>
+
+</body>
+</html>
