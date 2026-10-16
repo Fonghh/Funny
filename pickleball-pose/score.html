@@ -65,6 +65,15 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
 .viewer .chip { position: absolute; top: 8px; left: 8px; font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(5,7,9,.75); border: 1px solid var(--line-hi); color: var(--muted); }
 .viewer .chip.live { color: var(--good); border-color: var(--good); }
 .viewer .chip.rally { color: var(--ball); border-color: var(--ball); }
+.viewer .rec { position: absolute; top: 8px; right: 8px; font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(5,7,9,.75); border: 1px solid var(--bad); color: var(--bad); }
+.viewer .rec.on::first-letter { animation: blink 1.2s steps(2, start) infinite; }
+@keyframes blink { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .viewer .rec.on::first-letter { animation: none; } }
+.sum-h { margin: 0; font-size: 16px; color: var(--good); }
+.sum-line { margin: 0; font-size: 14px; }
+.sum-note { margin: 0; font-size: 12px; color: var(--muted); }
+.dl { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.dl a { color: var(--cyan); }
 .viewer .start { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 16px; text-align: center; background: radial-gradient(ellipse at center, rgba(63,212,255,.10), transparent 70%); }
 .viewer .start p { margin: 0; color: var(--muted); font-size: 12px; max-width: 30ch; }
 .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -134,6 +143,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
       <video id="cam" playsinline muted autoplay></video>
       <canvas id="overlay" aria-label="球場線、球的軌跡與落點"></canvas>
       <span class="chip" id="chip">未開始</span>
+      <span class="rec" id="rec" hidden>● REC</span>
       <div class="start" id="startPane">
         <button class="btn primary" id="camBtn" type="button">開啟鏡頭開始計分</button>
         <label class="btn" for="file">用錄好的影片測試</label>
@@ -143,7 +153,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     </div>
     <div class="row">
       <button class="btn" id="calBtn" type="button" disabled>重新校正球場</button>
-      <button class="btn" id="stopBtn" type="button" disabled>停止</button>
+      <button class="btn" id="stopBtn" type="button" disabled>結束比賽並儲存</button>
     </div>
     <div class="status" id="status" role="status">開啟鏡頭後會先自動辨識球場。</div>
   </section>
@@ -177,6 +187,17 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     </div>
   </section>
 
+  <section class="board" id="summary" aria-labelledby="h-sum" hidden>
+    <h2 id="h-sum" class="sum-h">這場比賽已儲存</h2>
+    <p class="sum-line" id="sumLine"></p>
+    <div class="big">
+      <a class="btn primary" id="sumOpen" href="./">在賽後分析查看</a>
+      <button class="btn" id="sumShare" type="button">存到相簿</button>
+    </div>
+    <p class="sum-note" id="sumNote">影片存在這個網站裡，賽後分析頁的「我的比賽」可以直接打開。Safari 可能在網站 7 天沒打開後清掉這些資料，重要的比賽請按「存到相簿」。</p>
+    <ul class="dl" id="sumDl" hidden></ul>
+  </section>
+
   <section class="more" aria-labelledby="h-log">
     <h2 id="h-log">每一球紀錄</h2>
     <ul class="log" id="log"><li><span class="n">—</span><span class="why">還沒有紀錄。偵測到一球結束時會自動判斷，5 秒內可以改判。</span><span></span></li></ul>
@@ -188,6 +209,8 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
       <label>先發球<select id="firstServe"><option value="A">A 隊</option><option value="B">B 隊</option></select></label>
       <label>局分<select id="target"><option value="11">11 分</option><option value="15">15 分</option><option value="21">21 分</option></select></label>
       <label>球場線<select id="courtType"><option value="pickleball">匹克球場</option><option value="badminton">羽球場改打</option></select></label>
+      <label>錄影<select id="recMode"><option value="rally">只錄每一球</option><option value="off">不錄影</option></select></label>
+      <label>往前保留<select id="preroll"><option value="1">1 秒</option><option value="3" selected>3 秒</option><option value="5">5 秒</option></select></label>
       <label>自動確認<select id="autoSec"><option value="5">5 秒</option><option value="8">8 秒</option><option value="0">不自動，要手動按</option></select></label>
     </div>
     <details>
@@ -199,6 +222,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
         <li>誰贏：看最後一次落地。落在某一邊界內沒被接回，那一邊輸；落在某一邊界外，是對面打出界，那一邊贏。</li>
         <li>計分用傳統雙打規則：只有發球方能得分，0-0-2 開局，1 號、2 號發球員輪完才換發。</li>
         <li>自動判斷只供參考，判錯就按「改判」或手動修正區的「上一步」。</li>
+        <li>錄影：只錄每一球，從偵測到球的前 3 秒（可在設定改）錄到這球結束後約 3 秒，每一球存成一段影片。按「結束比賽並儲存」後可以存到相簿，或在賽後分析頁打開。</li>
       </ul>
     </details>
   </section>
@@ -206,6 +230,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
 
 <script src="court.js"></script>
 <script src="ball.js"></script>
+<script src="match.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const cam = $("cam"), overlay = $("overlay"), octx = overlay.getContext("2d");
@@ -233,10 +258,16 @@ function renderBoard() {
   $("winMsg").hidden = !game.winner;
   if (game.winner) $("winMsg").textContent = `${game.winner} 隊贏得這一局！`;
 }
-function award(side, reason, auto) {
-  const before = game.call(), team = teamOf(side);
+function award(side, reason, auto, rallyN = null) {
+  const team = teamOf(side);
   game.rally(team);
   log.unshift({ n: log.length + 1, t: clock(), team, side, reason, call: game.call(), auto });
+  if (match) {
+    match.points.push({ rally: rallyN, team, side, reason, auto, call: game.call(), at: Date.now() });
+    const r = rallyN != null && match.rallies.find((x) => x.n === rallyN);
+    if (r) r.decision = { team, side, auto, call: game.call() };
+    saveMatch();
+  }
   renderLog(); renderBoard();
   if (navigator.vibrate) navigator.vibrate(30);
 }
@@ -246,11 +277,19 @@ function renderLog() {
 }
 const t0 = Date.now();
 function clock() { const s = Math.floor((Date.now() - t0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
-$("nearWin").addEventListener("click", () => { clearProposal(); award("near", "手動", false); });
-$("farWin").addEventListener("click", () => { clearProposal(); award("far", "手動", false); });
-$("undoBtn").addEventListener("click", () => { clearProposal(); game.undo(); log.shift(); renderLog(); renderBoard(); });
+$("nearWin").addEventListener("click", () => { const n = proposal?.n ?? null; clearProposal(); award("near", "手動", false, n); });
+$("farWin").addEventListener("click", () => { const n = proposal?.n ?? null; clearProposal(); award("far", "手動", false, n); });
+$("undoBtn").addEventListener("click", () => {
+  clearProposal(); game.undo(); log.shift(); renderLog(); renderBoard();
+  if (match?.points.length) { const p = match.points.pop(); const r = match.rallies.find((x) => x.n === p.rally); if (r) delete r.decision; saveMatch(); }
+});
 $("swapBtn").addEventListener("click", () => { nearTeam = nearTeam === "A" ? "B" : "A"; renderBoard(); });
-$("newBtn").addEventListener("click", () => { clearProposal(); game = newGame(); log.length = 0; renderLog(); renderBoard(); });
+$("newBtn").addEventListener("click", () => {
+  clearProposal();
+  if (running) { finishMatch(); }      // the finished game is saved; a new one starts right away
+  game = newGame(); log.length = 0; renderLog(); renderBoard();
+  if (running) beginMatch();
+});
 // before the first point, changing who serves first or the game length applies right away; later it waits for a new game
 for (const id of ["firstServe", "target"]) $(id).addEventListener("change", () => { if (!log.length) { game = newGame(); renderBoard(); } });
 
@@ -281,7 +320,7 @@ function accept(flip) {
   if (!proposal || !proposal.winner) return;
   const side = flip ? (proposal.winner === "near" ? "far" : "near") : proposal.winner;
   const reason = flip ? `改判（原判：${proposal.reason}）` : proposal.reason;
-  award(side, reason, !flip);
+  award(side, reason, !flip, proposal.n);
   clearProposal();
 }
 function clearProposal() { clearTimeout(propTimer); proposal = null; $("propose").hidden = true; }
@@ -308,18 +347,19 @@ $("file").addEventListener("change", async () => {
   try { await cam.play(); } catch (e) { setStatus("影片無法播放，請換一段。", true); return; }
   start();
 });
-$("stopBtn").addEventListener("click", stop);
+$("stopBtn").addEventListener("click", () => { clearProposal(); const m = finishMatch(); stop(); showSummary(m); });
 $("calBtn").addEventListener("click", recalibrate);
 $("courtType").addEventListener("change", recalibrate);
 function recalibrate() { lastCourtT = -1e9; court = null; roi = null; setStatus("校正球場中…"); }
 function start() {
-  $("startPane").hidden = true; $("calBtn").disabled = false; $("stopBtn").disabled = false;
+  $("startPane").hidden = true; $("calBtn").disabled = false; $("stopBtn").disabled = false; $("summary").hidden = true;
   running = true; resetPipeline(); court = null; lastCourtT = -1e9;
+  beginMatch();
   setChip("live", "LIVE · 等待發球");
   schedule();
 }
 function stop() {
-  running = false;
+  running = false; $("rec").hidden = true;
   if (cam.srcObject) { cam.srcObject.getTracks().forEach((t) => t.stop()); cam.srcObject = null; }
   cam.pause(); wakeLock?.release?.(); wakeLock = null;
   $("startPane").hidden = false; $("calBtn").disabled = true; $("stopBtn").disabled = true;
@@ -336,6 +376,73 @@ cam.addEventListener("ended", () => {
   let t = cam.currentTime; const id = setInterval(() => { t += 0.05; step(t, []); if (t > cam.currentTime + 2.5) { clearInterval(id); setChip("", "影片結束"); } }, 50);
 });
 
+// ---------- saved game and rally recording ----------
+let match = null, recorder = null, rallyN = 0, curRally = null;
+const clipsByMatch = new Map();           // match id -> clips recorded in this session (kept in memory for sharing)
+function beginMatch() {
+  match = { id: Date.now().toString(36), startedAt: Date.now(), firstServer: $("firstServe").value, target: +$("target").value,
+    courtType: $("courtType").value, preroll: +$("preroll").value, court: null, rallies: [], points: [], final: null, status: "live" };
+  rallyN = 0; curRally = null; clipsByMatch.set(match.id, []);
+  recorder = null;
+  if (!fileMode && cam.srcObject && $("recMode").value === "rally") {
+    const m = match;
+    recorder = new RallyRecorder(cam.srcObject, { preroll: +$("preroll").value, after: 1, onClip: (c) => storeClip(m, c) });
+    if (recorder.ok) { recorder.begin(); navigator.storage?.persist?.().catch(() => {}); updateRec(); }
+    else { recorder = null; setStatus("這個瀏覽器不能錄影，只會計分。"); }
+  }
+  $("rec").hidden = !recorder;
+}
+function saveMatch() { if (match && (match.rallies.length || match.points.length || match.court)) MatchDB.saveMatch(match).catch((e) => console.warn("save failed", e)); }
+function storeClip(m, c) {
+  clipsByMatch.get(m.id)?.push(c);
+  const r = m.rallies.find((x) => x.n === c.n);
+  const info = { preroll: c.preroll, duration: c.duration, size: c.blob.size, mime: c.mime };
+  if (r) r.clip = info; else (m.pendingClips ||= {})[c.n] = info;   // the rally record is written when the rally ends
+  MatchDB.saveClip({ key: `${m.id}:${c.n}`, matchId: m.id, n: c.n, blob: c.blob, ...info })
+    .catch((e) => setStatus(`影片存不下來：${e.message || e}（手機空間可能不夠）`, true));
+  MatchDB.saveMatch(m).catch(() => {});
+  if (m === match) updateRec();
+  if (!$("summary").hidden && $("summary").dataset.id === m.id) showSummary(m);
+}
+function updateRec() {
+  const clips = clipsByMatch.get(match?.id) || [], bytes = clips.reduce((a, c) => a + c.blob.size, 0);
+  $("rec").textContent = `● REC · ${clips.length} 球${clips.length ? " · " + fmtBytes(bytes) : ""}`;
+  $("rec").classList.add("on");
+}
+function finishMatch() {
+  const m = match; if (!m) return null;
+  // a rally still going when the game is ended keeps its clip, marked as unfinished
+  if (curRally) { Object.assign(curRally, { end: Date.now(), unfinished: true }); m.rallies.push(curRally); curRally = null; }
+  recorder?.end(); recorder = null;
+  for (const r of m.rallies) if (!r.clip && m.pendingClips?.[r.n]) r.clip = m.pendingClips[r.n];
+  delete m.pendingClips;
+  m.status = "done";
+  m.final = { call: game.call(), score: { ...game.score }, winner: game.winner, endedAt: Date.now() };
+  saveMatch(); match = null;
+  return m;
+}
+function showSummary(m) {
+  if (!m || !(m.rallies.length || m.points.length)) return;
+  const clips = clipsByMatch.get(m.id) || [], bytes = clips.reduce((a, c) => a + c.blob.size, 0);
+  $("summary").hidden = false; $("summary").dataset.id = m.id;
+  $("sumLine").textContent = `A 隊 ${m.final.score.A} : ${m.final.score.B} B 隊 · ${m.points.length} 分 · 錄到 ${clips.length} 球${clips.length ? `（${fmtBytes(bytes)}）` : ""}`;
+  $("sumOpen").href = `./?match=${m.id}`;
+  $("sumShare").hidden = !clips.length;
+  $("summary").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+$("sumShare").addEventListener("click", async () => {
+  const id = $("summary").dataset.id, clips = clipsByMatch.get(id) || [];
+  const stamp = new Date(parseInt(id, 36)).toISOString().slice(0, 16).replace(/[-:T]/g, "");
+  const files = clips.map((c) => new File([c.blob], `pickleball-${stamp}-${String(c.n).padStart(2, "0")}.${c.mime.includes("mp4") ? "mp4" : "webm"}`, { type: c.mime }));
+  if (navigator.canShare?.({ files })) {
+    try { await navigator.share({ files }); } catch (e) { if (e.name !== "AbortError") setStatus(`分享失敗：${e.message}`, true); }
+    return;
+  }
+  // no share sheet (most desktop browsers): offer each clip as a download
+  $("sumDl").hidden = false;
+  $("sumDl").innerHTML = files.map((f) => `<li><a download="${f.name}" href="${URL.createObjectURL(f)}">${f.name}</a>（${fmtBytes(f.size)}）</li>`).join("");
+});
+
 // ---------- per-frame work ----------
 const dbg = { frames: 0, cands: 0, events: [], courts: [] };
 function onFrame(t) {
@@ -350,6 +457,7 @@ function onFrame(t) {
     lastCourtT = t;
     const c = detectCourt(rgba, w, h, null, $("courtType").value);
     dbg.courts.push({ t: +t.toFixed(2), ok: !!c, tpl: c?.template, hit: c?.hit, miss: c?.miss });
+    if (c && match) { match.court = { m2i: c.m2i, i2m: c.i2m, template: c.template }; saveMatch(); }
     if (c) { court = c; roi = courtRoi(c, w, h); setStatus("已辨識球場（青色虛線）。看到球在動就開始判斷；線沒對準就按「重新校正球場」。"); }
     else if (!court) setStatus("還沒找到球場白線：手機架高、橫放，整面場入鏡後會自動辨識。");
   }
@@ -363,10 +471,29 @@ function step(t, cands) {
   const toCourt = court ? (x, y) => hApply(court.i2m, x / w, y / h).slice(0, 2) : null;
   for (const e of judge.step(t, tracker.main(), toCourt)) {
     dbg.events.push({ type: e.type, t: +(e.t ?? t).toFixed(2), court: e.court?.map((v) => +v.toFixed(1)), in: e.in, winner: e.winner });
-    if (e.type === "start") { setChip("rally", "RALLY · 進行中"); bouncesShown = []; }
-    if (e.type === "bounce") bouncesShown.push(e);
-    if (e.type === "end") { setChip("live", "LIVE · 等待發球"); propose(e); }
-    if (e.type === "cancel") { setChip("live", "LIVE · 等待發球"); bouncesShown = []; }
+    if (e.type === "start") {
+      setChip("rally", "RALLY · 進行中"); bouncesShown = [];
+      rallyN++; curRally = { n: rallyN, at: Date.now(), bounces: [] };
+      recorder?.rallyStart(rallyN);
+    }
+    if (e.type === "bounce") {
+      bouncesShown.push(e);
+      curRally?.bounces.push({ dt: +((Date.now() - curRally.at) / 1000).toFixed(2), court: e.court && e.court.map((v) => +v.toFixed(1)), in: e.in, side: e.side });
+    }
+    if (e.type === "end") {
+      setChip("live", "LIVE · 等待發球");
+      if (curRally && match) {
+        Object.assign(curRally, { end: Date.now(), auto: { winner: e.winner, reason: e.reason } });
+        match.rallies.push(curRally); e.n = curRally.n; saveMatch();
+      }
+      curRally = null; recorder?.rallyEnd();
+      propose(e);
+    }
+    if (e.type === "cancel") {
+      setChip("live", "LIVE · 等待發球"); bouncesShown = [];
+      if (curRally) { rallyN--; curRally = null; }
+      recorder?.rallyCancel();
+    }
   }
   draw();
 }
@@ -416,6 +543,7 @@ window.addEventListener("resize", () => { if (proc.width) draw(); });
 
 renderBoard();
 window.__dbg = dbg;
+window.__match = () => match;
 window.__score = () => ({ call: game.call(), serving: game.serving, log: log.map((e) => ({ team: e.team, reason: e.reason, call: e.call })), court: !!court, proposal: proposal && { winner: proposal.winner, reason: proposal.reason } });
 </script>
 </body>

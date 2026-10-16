@@ -139,6 +139,27 @@ a.btn { text-decoration: none; }
 .stroke .flag { color: var(--warn); }
 .empty { color: var(--muted); font-size: 12px; padding: 18px 0; }
 
+/* saved games */
+.mlist { display: grid; gap: 6px; }
+.mrow { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; text-align: left; font: inherit; color: var(--ink); }
+.mrow:hover { border-color: var(--line-hi); }
+.mrow .when { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.mrow .sc { font-family: var(--display); font-size: 20px; font-weight: 700; grid-row: span 2; }
+.mrow .meta { font-size: 12px; color: var(--muted); }
+.mhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rallies { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+.rchip { flex: none; display: grid; gap: 1px; padding: 6px 9px; min-width: 64px; border-radius: 8px; border: 1px solid var(--line-hi); background: var(--panel-2); font: inherit; color: var(--ink); cursor: pointer; text-align: left; }
+.rchip b { font-family: var(--display); font-size: 15px; }
+.rchip span { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.rchip.A { border-color: var(--cyan); } .rchip.A b { color: var(--cyan); }
+.rchip.B { border-color: var(--ball); } .rchip.B b { color: var(--ball); }
+.rchip[aria-current="true"] { background: var(--cyan-dim); }
+.rchip:disabled { opacity: .45; cursor: not-allowed; }
+.mtools { display: flex; gap: 6px; flex-wrap: wrap; }
+.btn.small { min-height: 34px; padding: 0 10px; font-size: 13px; }
+.btn.danger { border-color: var(--bad); color: var(--bad); }
+.mnote { margin: 0; font-size: 12px; color: var(--muted); }
+
 /* pose comparison and positioning */
 .key { display: inline-block; width: 12px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
 .key.blue { background: var(--blue); } .key.red { background: var(--red); margin-left: 6px; }
@@ -231,6 +252,20 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
   </div>
   <div class="status" id="status" role="status">正在載入姿態模型…</div>
 
+  <section class="hud" id="matchesSec" aria-labelledby="h-matches" hidden>
+    <div class="hud-head"><b id="h-matches">我的比賽</b><span id="matchesNote">即時計分錄下的每一球</span></div>
+    <div class="mlist" id="mlist"></div>
+    <div class="mdetail" id="mdetail" hidden>
+      <div class="mhead"><b id="mTitle"></b><button class="btn small" id="mBack" type="button">← 全部比賽</button></div>
+      <div class="rallies" id="rallies" role="list"></div>
+      <div class="mtools">
+        <button class="btn small" id="playAll" type="button">▶ 連續播放每一球</button>
+        <button class="btn small danger" id="mDelete" type="button">刪除這場</button>
+      </div>
+      <p class="mnote">點一球會載入那一段影片並自動分析動作。</p>
+    </div>
+  </section>
+
   <section class="hud" aria-label="分析結果">
     <div class="hud-head"><b>RESULT</b><span id="sumNote"></span></div>
     <div class="tiles" id="tiles"></div>
@@ -275,6 +310,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
   </section>
 </div>
 
+<script src="match.js"></script>
 <script type="module">
 import { FilesetResolver, PoseLandmarker } from "./mp/vision_bundle.mjs";
 
@@ -992,14 +1028,14 @@ overlay.addEventListener("click", async (e) => {
 });
 
 // ---------- loading a video ----------
-ui.file.addEventListener("change", async () => {
-  const f = ui.file.files[0]; if (!f) return;
+ui.file.addEventListener("change", () => { const f = ui.file.files[0]; if (f) { stopPlaylist(); markRally(null); openVideo(f, f.name); } });
+async function openVideo(f, name, { analyse = true } = {}) {
   if (videoURL) URL.revokeObjectURL(videoURL);
   $("cta").hidden = true; $("swapVid").hidden = false;
   videoURL = URL.createObjectURL(f);
   result = null; candidates = []; pickedIdx = -1; previewCourt = null; ui.run.textContent = "分析 ▸";
   clearResults();
-  $("source").innerHTML = `<em>SRC</em> <span></span>`; $("source").querySelector("span").textContent = f.name;
+  $("source").innerHTML = `<em>SRC</em> <span></span>`; $("source").querySelector("span").textContent = name;
   video.src = videoURL; video.load();
   setStatus("讀取影片中…");
   try {
@@ -1014,11 +1050,88 @@ ui.file.addEventListener("change", async () => {
       setTimeout(ok, 4000);
     });
   } catch (e) { setStatus(e.message, true); return; }
+  // recordings made in the browser may not state their length; reading past the end makes the browser work it out
+  if (!isFinite(video.duration)) {
+    await new Promise((res) => { video.addEventListener("durationchange", res, { once: true }); video.currentTime = 1e9; setTimeout(res, 3000); });
+    await seek(0);
+  }
   setViewerAspect();
+  if (!analyse) return;
   await seek(Math.min(0.5, video.duration / 2));
   ui.run.disabled = !landmarker;
   setStatus(`影片 ${fmtT(video.duration)} · ${landmarker ? "開始分析…" : "模型載入中，好了會自動開始分析…"}`);
   if (landmarker) { await previewPeople(); runAnalysis(); }
+}
+
+// ---------- saved games from the scoring page ----------
+let openMatch = null, playlist = null;
+async function renderMatches() {
+  let list = [];
+  try { list = await MatchDB.listMatches(); } catch (e) { console.warn("saved games unavailable", e); }
+  $("matchesSec").hidden = !list.length;
+  $("mlist").innerHTML = "";
+  for (const m of list.slice(0, 6)) {
+    const clips = m.rallies.filter((r) => r.clip).length, size = m.rallies.reduce((a, r) => a + (r.clip?.size || 0), 0);
+    const sc = m.final ? `${m.final.score.A}:${m.final.score.B}` : "進行中";
+    const b = document.createElement("button"); b.type = "button"; b.className = "mrow";
+    b.innerHTML = `<span class="when">${fmtDate(m.startedAt)}</span><span class="sc">${sc}</span><span class="meta">${m.points.length} 分 · 錄到 ${clips} 球${size ? " · " + fmtBytes(size) : ""}</span>`;
+    b.addEventListener("click", () => showMatch(m.id));
+    $("mlist").appendChild(b);
+  }
+  $("matchesNote").textContent = list.length > 6 ? `最近 6 場（共 ${list.length} 場）` : "即時計分錄下的每一球";
+}
+async function showMatch(id) {
+  const m = await MatchDB.getMatch(id); if (!m) return;
+  openMatch = m;
+  $("mlist").hidden = true; $("mdetail").hidden = false; $("matchesSec").hidden = false;
+  $("mTitle").textContent = `${fmtDate(m.startedAt)}　A ${m.final?.score.A ?? "-"} : ${m.final?.score.B ?? "-"} B`;
+  const box = $("rallies"); box.innerHTML = "";
+  for (const r of m.rallies) {
+    const team = r.decision?.team, b = document.createElement("button");
+    b.type = "button"; b.className = `rchip ${team || ""}`; b.dataset.n = r.n; b.role = "listitem"; b.disabled = !r.clip;
+    b.innerHTML = `<b>#${r.n}</b><span>${team ? team + " 隊贏" : r.unfinished ? "沒打完" : "未計分"}${r.decision?.call ? " · " + r.decision.call : ""}</span><span>${r.clip ? fmtT(r.clip.duration) : "沒錄到"}</span>`;
+    b.addEventListener("click", () => { stopPlaylist(); loadRally(m, r.n, true); });
+    box.appendChild(b);
+  }
+  $("playAll").disabled = !m.rallies.some((r) => r.clip);
+}
+function markRally(n) { document.querySelectorAll(".rchip").forEach((c) => c.setAttribute("aria-current", String(+c.dataset.n === n))); }
+async function loadRally(m, n, analyse) {
+  const clip = await MatchDB.getClip(m.id, n);
+  if (!clip) { setStatus("找不到這一球的影片，可能已被瀏覽器清掉。", true); return false; }
+  markRally(n);
+  $("cta").hidden = true; $("swapVid").hidden = false;
+  await openVideo(clip.blob, `${fmtDate(m.startedAt)} 第 ${n} 球`, { analyse });
+  return true;
+}
+// play every recorded rally in order, without analysing them
+async function playNext() {
+  if (!playlist) return;
+  const r = playlist.rallies[playlist.i++];
+  if (!r) { stopPlaylist(); setStatus("每一球都播完了。"); return; }
+  if (!(await loadRally(playlist.m, r.n, false))) return playNext();
+  setStatus(`連續播放：第 ${r.n} 球（${playlist.i} / ${playlist.rallies.length}）`);
+  video.playbackRate = 1; video.play().catch(() => {});
+}
+function stopPlaylist() { if (playlist) { playlist = null; video.removeEventListener("ended", playNext); $("playAll").textContent = "▶ 連續播放每一球"; } }
+$("playAll").addEventListener("click", () => {
+  if (playlist) { stopPlaylist(); video.pause(); return; }
+  playlist = { m: openMatch, rallies: openMatch.rallies.filter((r) => r.clip), i: 0 };
+  $("playAll").textContent = "■ 停止連續播放";
+  video.addEventListener("ended", playNext);
+  playNext();
+});
+$("mBack").addEventListener("click", () => { stopPlaylist(); $("mdetail").hidden = true; $("mlist").hidden = false; renderMatches(); });
+$("mDelete").addEventListener("click", async (e) => {
+  const b = e.currentTarget;
+  if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "再按一次確認刪除"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "刪除這場"; }, 3000); return; }
+  stopPlaylist(); await MatchDB.deleteMatch(openMatch.id); openMatch = null;
+  b.dataset.armed = ""; b.textContent = "刪除這場";
+  $("mdetail").hidden = true; $("mlist").hidden = false; renderMatches();
+});
+renderMatches().then(() => {
+  const id = new URLSearchParams(location.search).get("match");
+  if (id) showMatch(id).then(() => $("matchesSec").scrollIntoView({ block: "start" }));
 });
 
 // ---------- analysis ----------

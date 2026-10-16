@@ -97,12 +97,13 @@ def main():
     stamp = time.strftime("%Y%m%d%H%M%S")
     def stamped(html):
         for a, b in (('href="score.html"', f'href="score.html?v={stamp}"'), ('href="./"', f'href="./?v={stamp}"'),
-                     ('src="court.js"', f'src="court.js?v={stamp}"'), ('src="ball.js"', f'src="ball.js?v={stamp}"')):
+                     ('src="court.js"', f'src="court.js?v={stamp}"'), ('src="ball.js"', f'src="ball.js?v={stamp}"'),
+                     ('src="match.js"', f'src="match.js?v={stamp}"')):
             html = html.replace(a, b)
         return html
     (OUT / "index.html").write_text(stamped(page), encoding="utf-8")
     (OUT / "score.html").write_text(stamped((HERE / "score.html").read_text(encoding="utf-8")), encoding="utf-8")
-    for f in ("ball.js", "court.js"):
+    for f in ("ball.js", "court.js", "match.js"):
         shutil.copy(HERE / f, OUT / f)
     for d in ("mp",):
         shutil.copytree(HERE / d, OUT / d, dirs_exist_ok=True)
