@@ -253,8 +253,12 @@ function css(name) { return getComputedStyle(document.documentElement).getProper
 
 async function initModel() {
   const fileset = await FilesetResolver.forVisionTasks(new URL("./mp/wasm", location.href).href);
+  // the .task model is served under a .wasm name (a binary type the host serves) and passed as bytes
+  const res = await fetch("./models/pose_full.task.wasm");
+  if (!res.ok) throw new Error(`模型下載失敗（${res.status}）`);
+  const model = new Uint8Array(await res.arrayBuffer());
   const opts = (delegate) => ({
-    baseOptions: { modelAssetPath: new URL("./models/pose_full.task", location.href).href, delegate },
+    baseOptions: { modelAssetBuffer: model, delegate },
     runningMode: "VIDEO", numPoses: 5,
     minPoseDetectionConfidence: 0.4, minPosePresenceConfidence: 0.4, minTrackingConfidence: 0.4,
   });
@@ -299,15 +303,17 @@ function trackPlayer(raw, anchor, aspect) {
       let best = -1, bc = 1e9;
       if (i === anchor.fi) best = anchor.pi;
       else {
-        const pc = hipCenter(prev.lm, aspect), ph = bodyH(prev.lm);
+        // torso length is a steadier size cue than full height (legs are often cut off or misplaced)
+        const pc = hipCenter(prev.lm, aspect), pt = torsoLen(prev.lm, aspect);
         poses.forEach((p, k) => {
           if (!plausible(p, aspect)) return;
-          const c = hipCenter(p.lm, aspect), h = bodyH(p.lm);
-          const cost = Math.hypot(c[0] - pc[0], c[1] - pc[1]) / ph + 1.5 * Math.abs(Math.log(h / ph));
+          const c = hipCenter(p.lm, aspect), tl = torsoLen(p.lm, aspect);
+          const vis = p.lm.reduce((a, q) => a + q[3], 0) / p.lm.length;
+          const cost = Math.hypot(c[0] - pc[0], c[1] - pc[1]) / pt + 0.8 * Math.abs(Math.log(tl / pt)) + 0.5 * (1 - vis);
           if (cost < bc) { bc = cost; best = k; }
         });
         const gap = Math.abs(raw[i].t - prevT);
-        if (bc > 0.35 + 1.2 * gap) best = -1;   // the further we lost them, the more we allow them to have moved
+        if (bc > 1.0 + 4 * gap) best = -1;   // the longer we lost them, the more we allow them to have moved
       }
       if (best >= 0) { prev = poses[best]; prevT = raw[i].t; out[i].lm = prev.lm; out[i].w = prev.w; }
     }
@@ -321,23 +327,35 @@ function computeMetrics(frames, { hand, view, aspect }) {
   const ok = frames.map((f) => !!f.lm);
   // wrist speed in torso lengths per second
   const speed = (wi) => {
-    const pos = frames.map((f) => f.lm ? [f.lm[wi][0] * aspect, f.lm[wi][1]] : null);
+    // only trust the wrist where the model actually sees it; hidden wrists are guesses that jump around
+    const pos = frames.map((f) => f.lm && f.lm[wi][3] >= 0.5 ? [f.lm[wi][0] * aspect, f.lm[wi][1]] : null);
+    const med3 = (a, b, c) => a + b + c - Math.max(a, b, c) - Math.min(a, b, c);
     const sm = pos.map((p, i) => {
       if (!p) return null;
-      const win = [pos[i - 1], p, pos[i + 1]].filter(Boolean);
-      return [win.reduce((a, q) => a + q[0], 0) / win.length, win.reduce((a, q) => a + q[1], 0) / win.length];
+      const a = pos[i - 1], c = pos[i + 1];
+      return a && c ? [med3(a[0], p[0], c[0]), med3(a[1], p[1], c[1])] : p;
     });
     return sm.map((p, i) => {
       if (!i || !p || !sm[i - 1]) return 0;
       const dt = frames[i].t - frames[i - 1].t, tl = torsoLen(frames[i].lm, aspect);
-      return dt > 0 && tl > 0 ? Math.hypot(p[0] - sm[i - 1][0], p[1] - sm[i - 1][1]) / dt / tl : 0;
+      return dt > 0 && dt < 0.2 && tl > 0 ? Math.hypot(p[0] - sm[i - 1][0], p[1] - sm[i - 1][1]) / dt / tl : 0;
     });
   };
   const sR = speed(IDX.rWr), sL = speed(IDX.lWr);
   if (hand === "auto") hand = sR.reduce((a, b) => a + b, 0) >= sL.reduce((a, b) => a + b, 0) ? "right" : "left";
   const wi = hand === "left" ? IDX.lWr : IDX.rWr, sp = hand === "left" ? sL : sR;
 
-  const knee = frames.map((f) => f.w ? (angle3(f.w[23], f.w[25], f.w[27]) + angle3(f.w[24], f.w[26], f.w[28])) / 2 : null);
+  // knee angle, with impossible values dropped and a 5-frame median to remove single-frame glitches
+  const kneeRaw = frames.map((f) => {
+    if (!f.w || f.lm[25][3] < 0.3 || f.lm[26][3] < 0.3) return null;
+    const k = (angle3(f.w[23], f.w[25], f.w[27]) + angle3(f.w[24], f.w[26], f.w[28])) / 2;
+    return k >= 70 ? k : null;
+  });
+  const knee = kneeRaw.map((k, i) => {
+    if (k == null) return null;
+    const w = kneeRaw.slice(Math.max(0, i - 2), i + 3).filter((v) => v != null).sort((a, b) => a - b);
+    return w[w.length >> 1];
+  });
   // wrist height: 0 = hip line, 1 = shoulder line (image space)
   const wristH = frames.map((f) => {
     if (!f.lm) return null;
@@ -400,6 +418,7 @@ function computeMetrics(frames, { hand, view, aspect }) {
       readyKneeBent: frac(readyIdx.map((i) => knee[i]), (k) => k < 165),
       frontRate: frac(strokes.map((s) => s.front), (d) => d > 0.15),
       stance: avg(readyIdx.map((i) => stance[i])),
+      wristSeen: frac(frames.filter((f) => f.lm).map((f) => f.lm[wi][3]), (v) => v >= 0.5),
       kinds: strokes.reduce((m, s) => (m[s.kind] = (m[s.kind] || 0) + 1, m), {}),
     },
   };
@@ -426,7 +445,27 @@ function waitFrame() {
     setTimeout(() => { if (!fired) res(null); }, 120);
   });
 }
-function detect() { tsCounter += 34; return landmarker.detectForVideo(video, tsCounter); }
+// Every detection goes through one fixed-size canvas, so the model always sees the same image size.
+// focus = { c: [x, y], h } in normalized video coords: zoom in on that player; null = whole frame.
+const CANVAS = 960;
+const work = document.createElement("canvas"); work.width = work.height = CANVAS;
+const wctx = work.getContext("2d");
+function detect(focus = null) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  let sx = 0, sy = 0, sw = vw, sh = vh;
+  if (focus) {
+    sw = sh = Math.min(vw, vh, Math.max(vh * 0.4, focus.h * vh * 2.2));
+    sx = Math.max(0, Math.min(vw - sw, focus.c[0] * vw - sw / 2));
+    sy = Math.max(0, Math.min(vh - sh, focus.c[1] * vh - sh * 0.45));
+  }
+  const k = CANVAS / Math.max(sw, sh), dw = sw * k, dh = sh * k, dx = (CANVAS - dw) / 2, dy = (CANVAS - dh) / 2;
+  wctx.fillStyle = "#000"; wctx.fillRect(0, 0, CANVAS, CANVAS);
+  wctx.drawImage(video, sx, sy, sw, sh, dx, dy, dw, dh);
+  tsCounter += 34;
+  const r = landmarker.detectForVideo(work, tsCounter);
+  const back = (q) => ({ x: (sx + (q.x * CANVAS - dx) / k) / vw, y: (sy + (q.y * CANVAS - dy) / k) / vh, z: q.z, visibility: q.visibility });
+  return r.landmarks.map((p, i) => ({ lm: pack(p.map(back), 4), w: pack(r.worldLandmarks[i], 3) }));
+}
 function sizeOverlay() {
   const r = overlay.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
   overlay.width = Math.round(r.width * dpr); overlay.height = Math.round(r.height * dpr);
@@ -498,7 +537,7 @@ window.addEventListener("resize", () => { sizeOverlay(); renderOverlay(); drawCh
 async function previewPeople() {
   if (!landmarker || !video.videoWidth) return;
   await waitFrame();
-  candidates = detect().landmarks.map((p) => pack(p, 4));
+  candidates = detect().map((p) => p.lm);
   pickedIdx = largestPose(candidates.map((lm) => ({ lm })));
   showHint(candidates.length > 1
     ? `畫面中有 ${candidates.length} 人，預設分析最大（最近）的那位。要換人就點他，再按「開始分析」。`
@@ -554,7 +593,8 @@ async function runAnalysis() {
   const step = 1 / +$("rate").value, aspect = aspectOf();
   const anchorT = video.currentTime, anchorLm = candidates[pickedIdx] || null;
   const raw = [];
-  let lastMedia = null, lastSig = null;
+  let lastMedia = null, lastSig = null, focus = null, seenAt = -1;
+  if (anchorLm) { focus = { c: hipCenter(anchorLm, 1), h: bodyH(anchorLm) }; seenAt = anchorT; }
   const t0 = performance.now();
   // sample slightly off the frame grid so float rounding never lands two samples on one frame
   for (let t = step * 0.37; t < video.duration; t += step) {
@@ -562,8 +602,14 @@ async function runAnalysis() {
     const media = await waitFrame();
     if (media != null && media === lastMedia) continue;
     lastMedia = media;
-    const r = detect();
-    const poses = r.landmarks.map((p, i) => ({ lm: pack(p, 4), w: pack(r.worldLandmarks[i], 3) }));
+    // zoom on the player while we know where they are; fall back to the whole frame when lost
+    const zoom = focus && Math.abs(t - seenAt) < 0.6;
+    let poses = zoom ? detect(focus) : [];
+    if (!poses.length) poses = detect();
+    const pi = focus ? nearestPose(poses, focus.c, 1) : largestPose(poses);
+    if (pi >= 0 && (!focus || Math.hypot(...hipCenter(poses[pi].lm, 1).map((v, j) => v - focus.c[j])) < 0.25)) {
+      focus = { c: hipCenter(poses[pi].lm, 1), h: Math.max(0.12, bodyH(poses[pi].lm)) }; seenAt = t;
+    }
     const sig = poses.length ? poses[0].lm[0].join() : "";
     if (sig && sig === lastSig) continue;            // same frame decoded twice
     lastSig = sig;
@@ -677,6 +723,10 @@ function makeTips(r) {
   }
   if (S.stance != null && S.stance < 1.1)
     tips.push({ level: "warn", label: "可加強", title: `準備時站姿偏窄（腳距約為肩寬的 ${S.stance.toFixed(1)} 倍）`, body: "雙腳打開到比肩膀稍寬，左右移動和低球都會比較好處理。" });
+  if (S.wristSeen != null && S.wristSeen < 0.6)
+    tips.push({ level: "warn", label: "注意", title: `慣用手只有 ${pctTxt(S.wristSeen)}% 的時間看得清楚`, body: r.view === "back"
+      ? "從球員正後方拍時，持拍手常被身體擋住，擊球次數和擊球高度會不準。想看揮拍動作，建議從側面拍。"
+      : "手常被擋住或出鏡，擊球相關的數字會不準。調整鏡頭位置，讓持拍手一直在畫面內。" });
   if (r.coverage < 0.6)
     tips.push({ level: "warn", label: "注意", title: `只有 ${pctTxt(r.coverage)}% 的畫面有找到這位球員`, body: "球員常出鏡或被遮住，結果可能不準。鏡頭盡量拍到全身並固定不動。" });
   return tips;

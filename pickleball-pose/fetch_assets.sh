@@ -9,6 +9,6 @@ tmp=$(mktemp -d)
 cp "$tmp/package/vision_bundle.mjs" mp/
 cp "$tmp"/package/wasm/*.js "$tmp"/package/wasm/*.wasm mp/wasm/
 rm -rf "$tmp"
-curl -sSfLo models/pose_full.task \
+curl -sSfLo models/pose_full.task.wasm \
   https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task
 echo "assets ready"
