@@ -1004,9 +1004,19 @@ ui.file.addEventListener("change", async () => {
   result = null; candidates = []; pickedIdx = -1; previewCourt = null; ui.run.textContent = "分析 ▸";
   clearResults();
   $("source").innerHTML = `<em>SRC</em> <span></span>`; $("source").querySelector("span").textContent = f.name;
-  video.src = videoURL;
+  video.src = videoURL; video.load();
+  setStatus("讀取影片中…");
   try {
-    await new Promise((res, rej) => { video.onloadeddata = res; video.onerror = () => rej(new Error("這個影片格式無法播放，請換一段影片。")); });
+    await new Promise((res, rej) => {
+      let done = false;
+      const ok = () => { if (!done) { done = true; res(); } };
+      video.addEventListener("loadeddata", ok, { once: true });
+      video.addEventListener("canplay", ok, { once: true });
+      video.onerror = () => { if (!done) { done = true; rej(new Error("這個影片格式無法播放，請換一段影片。")); } };
+      // iOS Safari does not decode any frame until playback starts; a muted inline video may start on its own
+      video.play().then(() => { video.pause(); ok(); }).catch(() => {});
+      setTimeout(ok, 4000);
+    });
   } catch (e) { setStatus(e.message, true); return; }
   setViewerAspect();
   await seek(Math.min(0.5, video.duration / 2));
