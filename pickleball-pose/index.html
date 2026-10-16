@@ -1,222 +1,203 @@
 <title>匹克球動作分析</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
-/* Layout: one narrow column, phone first. Video viewer on top, then summary, tips, timeline, stroke list. */
+/* Layout: phone-first HUD. Fold 1 = toolbar + video + results (fits one portrait screen); fold 2 = full advice, guide. Single dark look by design. */
 :root {
-  --bg: #f3f5f4;
-  --surface: #ffffff;
-  --ink: #18242b;
-  --muted: #5d6b72;
-  --line: #d7dfdd;
-  --court: #1d5a7a;
-  --kitchen: #2f7d5b;
-  --ball: #e2c21b;
-  --ball-ink: #3b3200;
-  --good: #2f7d5b;
-  --warn: #b7661a;
-  --bad: #b8433b;
-  --chip-good: #e2f1ea;
-  --chip-warn: #f8ead9;
-  --chip-bad: #f6e0de;
-  --display: "Barlow Condensed", "Noto Sans TC", system-ui, sans-serif;
+  --bg: #050709;
+  --panel: #0b1014;
+  --panel-2: #10171c;
+  --line: #1c272e;
+  --line-hi: #2b3a43;
+  --ink: #e8f0f2;
+  --muted: #7d8f97;
+  --cyan: #3fd4ff;
+  --cyan-dim: rgba(63, 212, 255, .14);
+  --ball: #f3d23c;
+  --good: #44e0a0;
+  --warn: #ffb547;
+  --bad: #ff5d6c;
+  --display: "Chakra Petch", "Noto Sans TC", system-ui, sans-serif;
   --body: "Noto Sans TC", -apple-system, "PingFang TC", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0f171b; --surface: #16232a; --ink: #e5ecea; --muted: #93a3a8; --line: #2a3a41;
-    --court: #5fa8cf; --kitchen: #5cbf8f; --ball: #ecd23c; --ball-ink: #2a2400;
-    --good: #5cbf8f; --warn: #e2a25c; --bad: #ec8a80;
-    --chip-good: #183a2c; --chip-warn: #3d2b16; --chip-bad: #42201d;
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0f171b; --surface: #16232a; --ink: #e5ecea; --muted: #93a3a8; --line: #2a3a41;
-  --court: #5fa8cf; --kitchen: #5cbf8f; --ball: #ecd23c; --ball-ink: #2a2400;
-  --good: #5cbf8f; --warn: #e2a25c; --bad: #ec8a80;
-  --chip-good: #183a2c; --chip-warn: #3d2b16; --chip-bad: #42201d;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
-body {
-  background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.6;
+[hidden] { display: none !important; }
+html, body { background: var(--bg); }
+body { color: var(--ink); font-family: var(--body); font-size: 14px; line-height: 1.5; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.app {
+  max-width: 560px; margin: 0 auto;
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+  padding-block: 8px 40px;
+  display: grid; gap: 8px;
 }
-.wrap {
-  max-width: 760px; margin: 0 auto;
-  padding-left: max(16px, env(safe-area-inset-left, 0px));
-  padding-right: max(16px, env(safe-area-inset-right, 0px));
-  padding-block: 20px 48px;
-  display: grid; gap: 22px;
-}
-header { display: grid; gap: 4px; }
-.eyebrow { font-size: 12px; letter-spacing: .12em; color: var(--muted); text-transform: uppercase; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.tag { font-size: 11px; letter-spacing: .04em; background: var(--ball); color: var(--ball-ink); padding: 1px 8px; border-radius: 999px; font-weight: 700; text-transform: none; }
-h1 { font-size: 28px; line-height: 1.2; margin: 0; text-wrap: balance; font-weight: 700; }
-h2 { font-size: 17px; margin: 0; font-weight: 700; text-wrap: balance; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-h2 small { font-weight: 400; font-size: 13px; color: var(--muted); }
-p { margin: 0; }
-.lede { color: var(--muted); max-width: 60ch; }
-
-.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
-.controls { display: grid; gap: 12px; }
-.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); flex: 1 1 140px; min-width: 0; }
-select, .btn {
-  font: inherit; font-size: 15px; color: var(--ink); background: var(--bg);
-  border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; min-height: 44px;
-}
-select { width: 100%; }
-.btn { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-weight: 500; }
-.btn.primary { background: var(--court); border-color: var(--court); color: var(--surface); font-weight: 700; }
-.btn:disabled { opacity: .45; cursor: not-allowed; }
-.btn:focus-visible, select:focus-visible, .stroke:focus-visible, canvas:focus-visible { outline: 3px solid var(--ball); outline-offset: 2px; }
+button, select, .btn { font: inherit; color: var(--ink); }
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.status { font-size: 13px; color: var(--muted); min-height: 1.6em; }
-.status.err { color: var(--bad); }
-.bar { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; }
-.bar > i { display: block; height: 100%; width: 0%; background: var(--court); transition: width .2s; }
 
-.viewer { position: relative; width: 100%; max-width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; overflow: hidden; }
+/* toolbar */
+.bar { display: flex; align-items: center; gap: 8px; min-height: 40px; }
+.brand { display: flex; align-items: baseline; gap: 6px; margin-right: auto; min-width: 0; }
+.brand b { font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: .06em; white-space: nowrap; }
+.brand b i { font-style: normal; color: var(--cyan); }
+.brand span { font-family: var(--mono); font-size: 10px; color: var(--ball); border: 1px solid currentColor; padding: 0 5px; border-radius: 3px; white-space: nowrap; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
+  min-height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-hi); background: var(--panel-2);
+  font-size: 14px; font-weight: 500; white-space: nowrap;
+}
+.btn.primary { background: var(--cyan); border-color: var(--cyan); color: var(--bg); font-weight: 700; }
+.btn.go { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); font-weight: 700; }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn.icon { width: 38px; padding: 0; }
+.btn.icon svg { width: 18px; height: 18px; }
+.btn[aria-expanded="true"] { border-color: var(--cyan); color: var(--cyan); }
+
+.settings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.settings label { display: grid; gap: 3px; font-size: 11px; color: var(--muted); min-width: 0; }
+.settings select { width: 100%; min-height: 36px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line-hi); background: var(--panel-2); font-size: 13px; }
+@media (max-width: 380px) { .settings { grid-template-columns: 1fr 1fr; } }
+
+/* video stage */
+.viewer { position: relative; width: 100%; max-width: 100%; aspect-ratio: 16 / 9; margin-inline: auto; background: #000; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
 .viewer video, .viewer canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .viewer video { object-fit: fill; }
-.viewer .hint { position: absolute; left: 10px; bottom: 10px; right: 10px; color: #fff; background: rgba(0,0,0,.55); padding: 6px 10px; border-radius: 8px; font-size: 13px; pointer-events: none; }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.seg button { font: inherit; font-size: 14px; background: var(--bg); color: var(--ink); border: 0; padding: 8px 12px; min-height: 40px; cursor: pointer; font-family: var(--mono); }
-.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
-.time { font-family: var(--mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
+.viewer .corner { position: absolute; width: 14px; height: 14px; border: 2px solid var(--cyan); pointer-events: none; opacity: .9; }
+.viewer .c1 { top: 6px; left: 6px; border-right: 0; border-bottom: 0; }
+.viewer .c2 { top: 6px; right: 6px; border-left: 0; border-bottom: 0; }
+.viewer .c3 { bottom: 6px; left: 6px; border-right: 0; border-top: 0; }
+.viewer .c4 { bottom: 6px; right: 6px; border-left: 0; border-top: 0; }
+.viewer .src { position: absolute; top: 9px; left: 30px; right: 26px; font-family: var(--mono); font-size: 10px; color: var(--ink); text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.viewer .src em { font-style: normal; color: var(--cyan); }
+.viewer .hint { position: absolute; left: 8px; right: 8px; bottom: 10px; color: var(--ink); background: rgba(5, 7, 9, .78); border: 1px solid var(--line-hi); padding: 5px 8px; border-radius: 6px; font-size: 12px; pointer-events: none; }
+.viewer .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: transparent; }
+.viewer .prog i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); transition: width .2s; }
 
-.source { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.source b { color: var(--ink); font-weight: 500; }
+.ctrl { display: flex; align-items: center; gap: 6px; }
+.seg { display: inline-flex; border: 1px solid var(--line-hi); border-radius: 8px; overflow: hidden; }
+.seg button { background: var(--panel-2); border: 0; min-height: 36px; padding: 0 9px; cursor: pointer; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--cyan-dim); color: var(--cyan); }
+.time { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
+.status { font-family: var(--mono); font-size: 11px; color: var(--muted); min-height: 16px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status.err { color: var(--bad); white-space: normal; }
 
-.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-@media (min-width: 620px) { .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-.tile { border-top: 3px solid var(--court); padding-top: 8px; display: grid; gap: 2px; min-width: 0; }
-.tile .k { font-size: 12px; color: var(--muted); }
-.tile .v { font-family: var(--display); font-size: 38px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; }
-.tile .v small { font-size: 18px; font-weight: 600; color: var(--muted); margin-left: 2px; }
-.tile .n { font-size: 12px; color: var(--muted); }
+/* results HUD */
+.hud { display: grid; gap: 6px; padding: 8px 10px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.hud-head { display: flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-size: 10px; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+.hud-head b { color: var(--cyan); font-weight: 500; }
+.hud-head a { margin-left: auto; color: var(--muted); text-decoration: none; text-transform: none; letter-spacing: 0; font-size: 11px; }
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.tile { position: relative; display: grid; gap: 1px; padding: 6px 7px 5px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; min-width: 0; }
+.tile::after { content: ""; position: absolute; top: 7px; right: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--st, transparent); box-shadow: 0 0 6px var(--st, transparent); }
+.tile.good { --st: var(--good); } .tile.warn { --st: var(--warn); } .tile.bad { --st: var(--bad); }
+.tile .k { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; }
+.tile .v { font-family: var(--display); font-weight: 600; font-size: 24px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.tile .v small { font-size: 13px; color: var(--muted); margin-left: 1px; }
+.toptip { display: flex; gap: 8px; align-items: center; font-size: 13px; min-height: 22px; min-width: 0; }
+.toptip b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.chip { flex: none; font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
+.chip.good { color: var(--good); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--bad); }
+#chart { width: 100%; height: 72px; display: block; cursor: pointer; }
+.legend { display: flex; gap: 10px; font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: -2px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 2px; margin-right: 4px; vertical-align: middle; background: var(--c); }
+.strip { display: flex; gap: 6px; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 2px; scrollbar-width: thin; }
+.stroke { flex: 0 0 104px; scroll-snap-align: start; display: grid; gap: 3px; padding: 0 0 4px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; cursor: pointer; text-align: left; }
+.stroke.on { border-color: var(--ball); }
+.stroke img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; background: #000; }
+.stroke .row1 { display: flex; justify-content: space-between; align-items: baseline; padding: 0 6px; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.stroke .row1 b { font-family: var(--display); font-size: 14px; color: var(--ball); font-weight: 700; }
+.stroke .row2 { padding: 0 6px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stroke .flag { color: var(--warn); }
+.empty { color: var(--muted); font-size: 12px; padding: 18px 0; }
 
-.tips { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
-.tip { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: start; padding-block: 10px; border-bottom: 1px solid var(--line); }
+/* below the fold */
+.more { display: grid; gap: 8px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.more h2 { margin: 0; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; color: var(--muted); font-weight: 500; text-transform: uppercase; }
+.tips { list-style: none; margin: 0; padding: 0; display: grid; }
+.tip { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: start; padding-block: 9px; border-bottom: 1px solid var(--line); }
 .tip:last-child { border-bottom: 0; }
-.chip { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
-.chip.good { background: var(--chip-good); color: var(--good); }
-.chip.warn { background: var(--chip-warn); color: var(--warn); }
-.chip.bad { background: var(--chip-bad); color: var(--bad); }
-.tip b { font-weight: 700; }
-.tip p { grid-column: 2; color: var(--muted); font-size: 14px; }
-
-.chartbox { width: 100%; overflow-x: auto; }
-#chart { width: 100%; height: 190px; display: block; cursor: pointer; }
-.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
-.legend span::before { content: ""; display: inline-block; width: 14px; height: 3px; margin-right: 6px; vertical-align: middle; background: var(--c); }
-
-.strokes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-.stroke { display: grid; gap: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 8px; cursor: pointer; text-align: left; font: inherit; color: inherit; min-width: 0; }
-.stroke img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; background: #000; display: block; }
-.stroke .top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
-.stroke .num { font-family: var(--display); font-size: 22px; font-weight: 700; line-height: 1; }
-.stroke .t { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-.stroke dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; font-size: 13px; }
-.stroke dt { color: var(--muted); }
-.stroke dd { margin: 0; font-variant-numeric: tabular-nums; }
-.flag { color: var(--warn); font-weight: 700; }
-.empty { color: var(--muted); font-size: 14px; }
-
-details { font-size: 14px; color: var(--muted); }
-details summary { cursor: pointer; color: var(--ink); font-weight: 500; }
-details ul { padding-left: 20px; margin: 8px 0 0; display: grid; gap: 4px; }
-@media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+.tip b { font-weight: 500; }
+.tip p { grid-column: 2; margin: 0; color: var(--muted); font-size: 13px; }
+details { color: var(--muted); font-size: 13px; }
+details summary { cursor: pointer; color: var(--ink); }
+details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
+@media (prefers-reduced-motion: reduce) { .viewer .prog i { transition: none; } }
 </style>
 
-<div class="wrap">
-  <header>
-    <div class="eyebrow">Pickleball · Pose Review <span class="tag">參考用</span></div>
-    <h1>匹克球動作分析</h1>
-    <p class="lede">從相簿選一段對打影片，在手機上直接分析球員的骨架動作：抓出每一次擊球，看擊球時的屈膝、擊球高度、擊球點，以及擊球之間的準備姿勢。影片不會上傳。</p>
+<div class="app">
+  <header class="bar">
+    <div class="brand"><b>PICKLE<i>/</i>POSE</b><span>參考用</span></div>
+    <button class="btn icon" id="gear" type="button" aria-expanded="false" aria-controls="settings" aria-label="分析設定">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+    </button>
+    <label class="btn primary" for="file">＋ 匯入影片</label>
+    <input type="file" id="file" accept="video/*">
   </header>
 
-  <section class="panel" aria-labelledby="h-src">
-    <h2 id="h-src">影片</h2>
-    <div class="source" id="source">目前顯示：<b>範例 IMG_3362</b>（你上傳的影片，已預先分析）</div>
+  <div class="settings" id="settings" hidden>
+    <label>慣用手
+      <select id="hand">
+        <option value="auto">自動判斷</option>
+        <option value="right">右手</option>
+        <option value="left">左手</option>
+      </select>
+    </label>
+    <label>鏡頭位置
+      <select id="view">
+        <option value="back">球員後方</option>
+        <option value="front">球員前方</option>
+        <option value="side-left">側面・網在左</option>
+        <option value="side-right">側面・網在右</option>
+      </select>
+    </label>
+    <label>取樣頻率
+      <select id="rate">
+        <option value="30">30 張/秒</option>
+        <option value="15">15 張/秒（快）</option>
+      </select>
+    </label>
+  </div>
+
+  <section aria-label="影片">
     <div class="viewer" id="viewer">
       <video id="video" playsinline muted preload="auto"></video>
       <canvas id="overlay" tabindex="0" aria-label="骨架疊圖，點選球員可選擇分析對象"></canvas>
+      <i class="corner c1"></i><i class="corner c2"></i><i class="corner c3"></i><i class="corner c4"></i>
+      <div class="src" id="source"><em>SRC</em> 範例 IMG_3362</div>
       <div class="hint" id="hint" hidden></div>
-    </div>
-    <div class="row">
-      <button class="btn" id="play" type="button">▶ 播放</button>
-      <div class="seg" role="group" aria-label="播放速度">
-        <button type="button" data-rate="0.25" aria-pressed="false">¼×</button>
-        <button type="button" data-rate="0.5" aria-pressed="true">½×</button>
-        <button type="button" data-rate="1" aria-pressed="false">1×</button>
-      </div>
-      <span class="time" id="time">0:00.0</span>
-    </div>
-
-    <div class="controls">
-      <div class="row">
-        <label class="btn" for="file">選擇影片</label>
-        <input type="file" id="file" accept="video/*">
-        <button class="btn primary" id="run" type="button" disabled>開始分析</button>
-      </div>
-      <div class="row">
-        <label class="field">慣用手
-          <select id="hand">
-            <option value="auto">自動判斷</option>
-            <option value="right">右手</option>
-            <option value="left">左手</option>
-          </select>
-        </label>
-        <label class="field">鏡頭位置（相對於球員）
-          <select id="view">
-            <option value="back">在球員後方</option>
-            <option value="front">在球員前方</option>
-            <option value="side-left">在側面，網在畫面左邊</option>
-            <option value="side-right">在側面，網在畫面右邊</option>
-          </select>
-        </label>
-        <label class="field">取樣頻率
-          <select id="rate">
-            <option value="30">每秒 30 張（較準）</option>
-            <option value="15">每秒 15 張（較快）</option>
-          </select>
-        </label>
-      </div>
-      <div class="bar" aria-hidden="true"><i id="bar"></i></div>
-      <div class="status" id="status" role="status">正在載入姿態模型…</div>
+      <div class="prog" aria-hidden="true"><i id="bar"></i></div>
     </div>
   </section>
+  <div class="ctrl">
+    <button class="btn icon" id="play" type="button" aria-label="播放">▶</button>
+    <div class="seg" role="group" aria-label="播放速度">
+      <button type="button" data-rate="0.25" aria-pressed="false">¼×</button>
+      <button type="button" data-rate="0.5" aria-pressed="true">½×</button>
+      <button type="button" data-rate="1" aria-pressed="false">1×</button>
+    </div>
+    <span class="time" id="time">0:00.0</span>
+    <button class="btn go" id="run" type="button" disabled>分析 ▸</button>
+  </div>
+  <div class="status" id="status" role="status">正在載入姿態模型…</div>
 
-  <section class="panel" aria-labelledby="h-sum">
-    <h2 id="h-sum">總覽 <small id="sumNote"></small></h2>
+  <section class="hud" aria-label="分析結果">
+    <div class="hud-head"><b>RESULT</b><span id="sumNote"></span><a href="#advice">全部建議 ↓</a></div>
     <div class="tiles" id="tiles"></div>
+    <div class="toptip" id="toptip"></div>
+    <canvas id="chart" tabindex="0" aria-label="膝蓋角度與手腕速度時間軸，點一下跳到該時間"></canvas>
+    <div class="strip" id="strokes"></div>
   </section>
 
-  <section class="panel" aria-labelledby="h-tips">
+  <section class="more" id="advice" aria-labelledby="h-tips">
     <h2 id="h-tips">改進建議</h2>
     <ul class="tips" id="tips"></ul>
   </section>
 
-  <section class="panel" aria-labelledby="h-tl">
-    <h2 id="h-tl">時間軸 <small>點一下跳到該時間</small></h2>
-    <div class="chartbox"><canvas id="chart" tabindex="0" aria-label="屈膝角度與手腕速度時間軸"></canvas></div>
-    <div class="legend">
-      <span style="--c: var(--court)">膝蓋角度（越小越蹲）</span>
-      <span style="--c: var(--ball)">慣用手手腕速度</span>
-      <span style="--c: var(--bad)">偵測到的擊球</span>
-    </div>
-  </section>
-
-  <section class="panel" aria-labelledby="h-st">
-    <h2 id="h-st">每一拍 <small>點卡片以 ¼ 速重播</small></h2>
-    <div class="strokes" id="strokes"></div>
-  </section>
-
-  <section class="panel">
+  <section class="more">
     <details>
       <summary>怎麼拍效果最好、數字怎麼算</summary>
       <ul>
@@ -224,8 +205,8 @@ details ul { padding-left: 20px; margin: 8px 0 0; display: grid; gap: 4px; }
         <li>分析揮拍動作：從側面拍，鏡頭高度約腰到胸。分析站位與移動：從底線後方高處拍。</li>
         <li>建議 1080p、每秒 60 格，片段 3 分鐘以內，手機分析比較順。</li>
         <li>擊球偵測：慣用手手腕速度出現明顯高峰就算一拍。假動作或大幅度揮手也可能被算進去。</li>
-        <li>膝蓋角度是髖–膝–踝三點的 3D 夾角，站直約 175°。擊球點前後是用單一鏡頭估計的深度，誤差較大，只供參考。</li>
-        <li>雙打時畫面裡有多人：分析前在畫面上點一下要分析的球員。</li>
+        <li>膝蓋角度是髖–膝–踝三點的 3D 夾角，站直約 175°，建議擊球時 130–155°。擊球點前後是單一鏡頭估計的深度，誤差較大。</li>
+        <li>雙打時畫面裡有多人：分析前在畫面上點一下要分析的球員；分析完暫停時點其他人，可以改分析他。</li>
       </ul>
     </details>
   </section>
@@ -471,7 +452,14 @@ function sizeOverlay() {
   overlay.width = Math.round(r.width * dpr); overlay.height = Math.round(r.height * dpr);
 }
 function setViewerAspect() {
-  if (video.videoWidth) $("viewer").style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+  const v = $("viewer");
+  if (video.videoWidth) {
+    const a = video.videoWidth / video.videoHeight;
+    v.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+    // keep the video to ~36% of the screen height so the results stay on the first screen (portrait clips too)
+    const maxH = Math.max(170, window.innerHeight * 0.33);
+    v.style.width = `${Math.min(v.parentElement.clientWidth, maxH * a)}px`;
+  }
   sizeOverlay();
 }
 
@@ -505,25 +493,24 @@ function renderOverlay() {
   if (result && !analyzing) {
     const fi = frameIndexAt(video.currentTime);
     if (fi >= 0) {
-      if (video.paused) for (const p of result.raw[fi].poses) if (p.lm !== result.frames[fi].lm) drawPose(octx, p.lm, w, h, { color: "#9fb3bb", alpha: 0.55, width: lw * 0.8 });
+      if (video.paused) for (const p of result.raw[fi].poses) if (p.lm !== result.frames[fi].lm) drawPose(octx, p.lm, w, h, { color: "#7d8f97", alpha: 0.55, width: lw * 0.8 });
       const fr = result.frames[fi];
-      if (fr.lm) drawPose(octx, fr.lm, w, h, { color: "#ffffff", arm: armIdx(result.hand), width: lw });
+      if (fr.lm) drawPose(octx, fr.lm, w, h, { color: css("--cyan"), arm: armIdx(result.hand), width: lw });
     }
     const s = result.strokes.find((s) => Math.abs(s.t - video.currentTime) < 0.1);
     if (s) {
-      octx.fillStyle = "rgba(0,0,0,.6)"; octx.fillRect(lw * 3, lw * 3, lw * 44, lw * 11);
-      octx.fillStyle = "#fff"; octx.font = `700 ${lw * 6}px ${css("--body")}`;
-      octx.fillText(`第 ${s.i} 拍・${s.kind}`, lw * 6, lw * 10.5);
+      octx.font = `700 ${lw * 6}px ${css("--body")}`; octx.fillStyle = css("--ball");
+      octx.fillText(`HIT #${s.i}・${s.kind}`, lw * 8, h - lw * 8);
     }
   } else if (candidates.length) {
-    candidates.forEach((lm, i) => drawPose(octx, lm, w, h, { color: i === pickedIdx ? "#ffffff" : "#9fb3bb", alpha: i === pickedIdx ? 1 : 0.6, width: lw }));
+    candidates.forEach((lm, i) => drawPose(octx, lm, w, h, { color: i === pickedIdx ? css("--cyan") : "#7d8f97", alpha: i === pickedIdx ? 1 : 0.6, width: lw }));
   }
   $("time").textContent = fmtT(video.currentTime || 0);
 }
 let rafOn = false;
 function loop() { renderOverlay(); if (!video.paused) requestAnimationFrame(loop); else rafOn = false; }
-video.addEventListener("play", () => { $("play").textContent = "❚❚ 暫停"; if (!rafOn) { rafOn = true; requestAnimationFrame(loop); } });
-video.addEventListener("pause", () => { $("play").textContent = "▶ 播放"; renderOverlay(); });
+video.addEventListener("play", () => { $("play").textContent = "❚❚"; $("play").setAttribute("aria-label", "暫停"); if (!rafOn) { rafOn = true; requestAnimationFrame(loop); } });
+video.addEventListener("pause", () => { $("play").textContent = "▶"; $("play").setAttribute("aria-label", "播放"); renderOverlay(); });
 video.addEventListener("seeked", () => { if (!analyzing) { renderOverlay(); drawChart(); } });
 $("play").addEventListener("click", () => { video.paused ? video.play() : video.pause(); });
 document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => setRate(+b.dataset.rate)));
@@ -531,7 +518,8 @@ function setRate(r) {
   video.playbackRate = r;
   document.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-pressed", String(+x.dataset.rate === r)));
 }
-window.addEventListener("resize", () => { sizeOverlay(); renderOverlay(); drawChart(); });
+window.addEventListener("resize", () => { setViewerAspect(); renderOverlay(); drawChart(); });
+$("gear").addEventListener("click", () => { const st = $("settings"); st.hidden = !st.hidden; $("gear").setAttribute("aria-expanded", String(!st.hidden)); });
 
 // ---------- picking the player ----------
 async function previewPeople() {
@@ -573,7 +561,7 @@ ui.file.addEventListener("change", async () => {
   videoURL = URL.createObjectURL(f);
   result = null; candidates = []; pickedIdx = -1;
   clearResults();
-  $("source").innerHTML = `目前顯示：<b></b>`; $("source").querySelector("b").textContent = f.name;
+  $("source").innerHTML = `<em>SRC</em> <span></span>`; $("source").querySelector("span").textContent = f.name;
   video.src = videoURL; thumbVideo.src = videoURL;
   try {
     await new Promise((res, rej) => { video.onloadeddata = res; video.onerror = () => rej(new Error("這個影片格式無法播放，請換一段影片。")); });
@@ -581,7 +569,7 @@ ui.file.addEventListener("change", async () => {
   setViewerAspect();
   await seek(Math.min(0.5, video.duration / 2));
   ui.run.disabled = !landmarker;
-  setStatus(`影片長度 ${fmtT(video.duration)}。${landmarker ? "" : "姿態模型還在載入，好了就能開始分析。"}`);
+  setStatus(`影片 ${fmtT(video.duration)} · ${landmarker ? "點選球員後按「分析」" : "模型載入中…"}`);
   previewPeople();
 });
 
@@ -618,9 +606,9 @@ async function runAnalysis() {
     ui.bar.style.width = `${(p * 100).toFixed(1)}%`;
     if (raw.length % 5 === 0) {
       const el = (performance.now() - t0) / 1000;
-      setStatus(`分析中 ${(p * 100).toFixed(0)}%・還要約 ${Math.max(1, Math.round(el / p - el))} 秒`);
+      setStatus(`分析中 ${(p * 100).toFixed(0)}% · 剩約 ${Math.max(1, Math.round(el / p - el))} 秒`);
       octx.clearRect(0, 0, overlay.width, overlay.height);
-      for (const q of poses) drawPose(octx, q.lm, overlay.width, overlay.height, { color: "#ffffff", width: Math.max(2, overlay.width / 260) });
+      for (const q of poses) drawPose(octx, q.lm, overlay.width, overlay.height, { color: css("--cyan"), width: Math.max(2, overlay.width / 260) });
     }
   }
   ui.bar.style.width = "100%";
@@ -637,7 +625,7 @@ async function runAnalysis() {
   analyzing = false; ui.run.disabled = false;
   result = { raw, aspect, settings: { hand: $("hand").value, view: $("view").value } };
   await rebuild(anchor);
-  setStatus(`完成：分析了 ${raw.length} 張畫面，用了 ${((performance.now() - t0) / 1000).toFixed(0)} 秒。暫停時點畫面上的其他人，可以改分析他。`);
+  setStatus(`完成 · ${raw.length} 張畫面 · ${((performance.now() - t0) / 1000).toFixed(0)} 秒 · 暫停時點別人可改分析他`);
   await seek(0);
 }
 // track + metrics + UI, from the stored raw detections (no re-detection needed)
@@ -664,13 +652,13 @@ function cropThumb(el, lm, hand) {
   const vw = el.videoWidth, vh = el.videoHeight;
   let x0 = 1, x1 = 0, y0 = 1, y1 = 0;
   for (const p of lm) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
-  const ch = Math.min(vh, (y1 - y0) * vh * 1.25), cw = Math.min(vw, ch * 4 / 3);
+  const ch = Math.min(vh, (y1 - y0) * vh * 1.2), cw = Math.min(vw, ch * 16 / 10);
   const cx = (x0 + x1) / 2 * vw, cy = (y0 + y1) / 2 * vh;
   const sx = Math.max(0, Math.min(vw - cw, cx - cw / 2)), sy = Math.max(0, Math.min(vh - ch, cy - ch / 2));
-  const c = document.createElement("canvas"); c.width = 240; c.height = 180;
-  const ctx = c.getContext("2d"); ctx.drawImage(el, sx, sy, cw, ch, 0, 0, 240, 180);
+  const c = document.createElement("canvas"); c.width = 256; c.height = 160;
+  const ctx = c.getContext("2d"); ctx.drawImage(el, sx, sy, cw, ch, 0, 0, 256, 160);
   const local = lm.map((p) => [(p[0] * vw - sx) / cw, (p[1] * vh - sy) / ch, p[2], p[3]]);
-  drawPose(ctx, local, 240, 180, { color: "#ffffff", arm: armIdx(hand), width: 2.5 });
+  drawPose(ctx, local, 256, 160, { color: css("--cyan"), arm: armIdx(hand), width: 2.5 });
   return c.toDataURL("image/jpeg", 0.75);
 }
 $("hand").addEventListener("change", () => { if (result && !analyzing) { result.settings.hand = $("hand").value; rebuild(result.anchor); } });
@@ -678,22 +666,27 @@ $("view").addEventListener("change", () => { if (result && !analyzing) { result.
 
 // ---------- results UI ----------
 function clearResults() {
-  $("tiles").innerHTML = ""; $("tips").innerHTML = ""; $("strokes").innerHTML = ""; $("sumNote").textContent = "";
+  $("tiles").innerHTML = ""; $("tips").innerHTML = ""; $("strokes").innerHTML = ""; $("sumNote").textContent = ""; $("toptip").innerHTML = "";
   const c = $("chart"); c.getContext("2d").clearRect(0, 0, c.width, c.height);
 }
 const pctTxt = (x) => x == null ? "—" : Math.round(x * 100);
 function renderAll() {
   const S = result.summary;
-  $("sumNote").textContent = `${result.hand === "left" ? "左手" : "右手"}・${pctTxt(result.coverage)}% 的畫面有找到這位球員`;
+  $("sumNote").textContent = `${result.hand === "left" ? "左手" : "右手"} · 追蹤 ${pctTxt(result.coverage)}%`;
+  const lv = (v, good, warn) => v == null ? "" : good(v) ? "good" : warn(v) ? "warn" : "bad";
   const tiles = [
-    ["擊球次數", S.strokes, "", Object.entries(S.kinds).map(([k, v]) => `${k} ${v}`).join("、") || "沒有偵測到"],
-    ["擊球時膝蓋角度", S.kneeAtContact == null ? "—" : Math.round(S.kneeAtContact), "°", "站直約 175°，建議 130–155°"],
-    ["準備時拍子在腰以上", pctTxt(S.readyPaddleUp), "%", "擊球之間的時間"],
-    ["擊球點在身體前方", pctTxt(S.frontRate), "%", "單鏡頭估計，僅供參考"],
+    ["擊球", S.strokes, "", S.strokes ? "good" : "warn"],
+    ["擊球屈膝", S.kneeAtContact == null ? "—" : Math.round(S.kneeAtContact), "°", lv(S.kneeAtContact, (k) => k <= 152, (k) => k <= 160)],
+    ["拍在腰上", pctTxt(S.readyPaddleUp), "%", lv(S.readyPaddleUp, (p) => p >= 0.75, (p) => p >= 0.5)],
+    ["擊球在前", pctTxt(S.frontRate), "%", lv(S.frontRate, (p) => p >= 0.5, (p) => p >= 0.3)],
   ];
-  $("tiles").innerHTML = tiles.map(([k, v, u, note]) =>
-    `<div class="tile"><span class="k">${k}</span><span class="v">${v}${v === "—" ? "" : `<small>${u}</small>`}</span><span class="n">${note}</span></div>`).join("");
-  $("tips").innerHTML = makeTips(result).map((t) => `<li class="tip"><span class="chip ${t.level}">${t.label}</span><b>${t.title}</b><p>${t.body}</p></li>`).join("");
+  $("tiles").innerHTML = tiles.map(([k, v, u, st]) =>
+    `<div class="tile ${st}"><span class="k">${k}</span><span class="v">${v}${v === "—" ? "" : `<small>${u}</small>`}</span></div>`).join("");
+  const tips = makeTips(result);
+  const top = tips.find((t) => t.level === "bad") || tips.find((t) => t.level === "warn") || tips[0];
+  $("toptip").innerHTML = top ? `<span class="chip ${top.level}">${top.label}</span><b></b>` : "";
+  if (top) $("toptip").querySelector("b").textContent = top.title;
+  $("tips").innerHTML = tips.map((t) => `<li class="tip"><span class="chip ${t.level}">${t.label}</span><b>${t.title}</b><p>${t.body}</p></li>`).join("");
   renderStrokes(); drawChart();
 }
 function makeTips(r) {
@@ -733,26 +726,22 @@ function makeTips(r) {
 }
 function renderStrokes() {
   const box = $("strokes");
-  if (!result.strokes.length) { box.innerHTML = `<p class="empty">沒有偵測到擊球。</p>`; return; }
+  if (!result.strokes.length) { box.innerHTML = `<p class="empty">沒有偵測到擊球。試試側面拍攝的影片。</p>`; return; }
   box.innerHTML = "";
   for (const s of result.strokes) {
     const b = document.createElement("button"); b.type = "button"; b.className = "stroke"; b.dataset.i = s.i;
     const kneeTxt = s.knee == null ? "—" : `${Math.round(s.knee)}°`;
     b.innerHTML = `<img alt="第 ${s.i} 拍的骨架截圖" src="${s.thumb || "data:image/gif;base64,R0lGODlhAQABAAAAACw="}">
-      <div class="top"><span class="num">#${s.i}</span><span class="t">${fmtT(s.t)}</span></div>
-      <dl>
-        <dt>高度</dt><dd>${s.kind}</dd>
-        <dt>膝蓋</dt><dd class="${s.knee > 160 ? "flag" : ""}">${kneeTxt}${s.knee > 160 ? "・偏直" : ""}</dd>
-        <dt>擊球點</dt><dd class="${s.contact === "身體後方" ? "flag" : ""}">${s.contact}</dd>
-      </dl>`;
-    b.addEventListener("click", () => replay(s.t));
+      <div class="row1"><b>#${s.i}</b><span>${fmtT(s.t)}</span></div>
+      <div class="row2">${s.kind.slice(0, 2)} · <span class="${s.knee > 160 ? "flag" : ""}">屈膝 ${kneeTxt}</span></div>`;
+    b.addEventListener("click", () => { document.querySelectorAll(".stroke.on").forEach((x) => x.classList.remove("on")); b.classList.add("on"); replay(s.t); });
     box.appendChild(b);
   }
 }
 async function replay(t) {
   video.pause(); setRate(0.25);
   await seek(Math.max(0, t - 0.7));
-  $("viewer").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  if ($("viewer").getBoundingClientRect().top < 0) $("viewer").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   video.play().catch(() => {});
   const stop = () => { if (video.currentTime > t + 0.6) { video.pause(); video.removeEventListener("timeupdate", stop); } };
   video.addEventListener("timeupdate", stop);
@@ -763,39 +752,44 @@ function drawChart() {
   const dpr = window.devicePixelRatio || 1, r = c.getBoundingClientRect();
   c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
   const ctx = c.getContext("2d"); ctx.scale(dpr, dpr);
-  const W = r.width, H = r.height, padL = 36, padR = 12, padT = 12, padB = 22;
+  const W = r.width, H = r.height, padL = 28, padR = 4, padT = 14, padB = 14;
   const iw = W - padL - padR, ih = H - padT - padB, T = result.duration || 1;
   const x = (t) => padL + t / T * iw;
   const kMin = 90, kMax = 180, yk = (k) => padT + (1 - (k - kMin) / (kMax - kMin)) * ih;
   const sp = result.series.speed, fr = result.frames;
   const sMax = Math.max(result.series.thr * 1.5, ...sp) || 1, ys = (s) => padT + (1 - Math.min(s, sMax) / sMax) * ih;
-  ctx.font = `11px ${css("--mono")}`; ctx.fillStyle = css("--muted"); ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
-  for (const k of [90, 120, 150, 180]) {
+  ctx.font = `9px ${css("--mono")}`; ctx.fillStyle = css("--muted"); ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
+  for (const k of [90, 135, 180]) {
     ctx.beginPath(); ctx.moveTo(padL, yk(k)); ctx.lineTo(W - padR, yk(k)); ctx.stroke();
-    ctx.textAlign = "right"; ctx.fillText(`${k}°`, padL - 4, yk(k) + 4);
+    ctx.textAlign = "right"; ctx.fillText(`${k}°`, padL - 3, yk(k) + 3);
   }
   ctx.textAlign = "center";
   const tick = T > 60 ? 15 : T > 20 ? 5 : T > 8 ? 2 : 1;
-  for (let t = 0; t <= T + 1e-6; t += tick) ctx.fillText(`${t}s`, x(t), H - 6);
+  for (let t = 0; t <= T + 1e-6; t += tick) ctx.fillText(`${t}s`, x(t), H - 2);
   // wrist speed area
   ctx.beginPath(); ctx.moveTo(x(fr[0].t), ys(0));
   fr.forEach((f, i) => ctx.lineTo(x(f.t), ys(sp[i])));
   ctx.lineTo(x(fr[fr.length - 1].t), ys(0)); ctx.closePath();
-  ctx.fillStyle = css("--ball"); ctx.globalAlpha = 0.3; ctx.fill(); ctx.globalAlpha = 1;
-  ctx.strokeStyle = css("--ball"); ctx.lineWidth = 1.5; ctx.beginPath();
-  fr.forEach((f, i) => i ? ctx.lineTo(x(f.t), ys(sp[i])) : ctx.moveTo(x(f.t), ys(sp[i]))); ctx.stroke();
-  // knee angle line
-  ctx.strokeStyle = css("--court"); ctx.lineWidth = 2; ctx.beginPath(); let pen = false;
+  ctx.fillStyle = css("--muted"); ctx.globalAlpha = 0.28; ctx.fill(); ctx.globalAlpha = 1;
+  // knee angle line, with a soft glow
+  ctx.strokeStyle = css("--cyan"); ctx.lineWidth = 1.6; ctx.shadowColor = css("--cyan"); ctx.shadowBlur = 6;
+  ctx.beginPath(); let pen = false;
   result.series.knee.forEach((k, i) => { if (k == null) { pen = false; return; } const kk = Math.max(kMin, Math.min(kMax, k)); pen ? ctx.lineTo(x(fr[i].t), yk(kk)) : ctx.moveTo(x(fr[i].t), yk(kk)); pen = true; });
-  ctx.stroke();
+  ctx.stroke(); ctx.shadowBlur = 0;
   // detected strokes
-  ctx.fillStyle = css("--bad"); ctx.strokeStyle = css("--bad"); ctx.lineWidth = 1;
+  ctx.fillStyle = css("--ball"); ctx.strokeStyle = css("--ball"); ctx.lineWidth = 1;
   for (const s of result.strokes) {
-    ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(x(s.t), padT); ctx.lineTo(x(s.t), padT + ih); ctx.stroke(); ctx.globalAlpha = 1;
-    ctx.beginPath(); ctx.arc(x(s.t), padT + 1, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 0.6; ctx.beginPath(); ctx.moveTo(x(s.t), padT); ctx.lineTo(x(s.t), padT + ih); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.moveTo(x(s.t) - 4, padT - 2); ctx.lineTo(x(s.t) + 4, padT - 2); ctx.lineTo(x(s.t), padT + 4); ctx.closePath(); ctx.fill();
   }
+  // legend, drawn into the chart to save a row
+  ctx.textAlign = "right"; ctx.font = `9px ${css("--mono")}`;
+  [["擊球", "--ball"], ["手腕速度", "--muted"], ["膝蓋角度", "--cyan"]].reduce((xr, [lab, tok]) => {
+    ctx.fillStyle = css(tok); ctx.fillText(lab, xr, 8); ctx.fillRect(xr - ctx.measureText(lab).width - 10, 4, 7, 2);
+    return xr - ctx.measureText(lab).width - 18;
+  }, W - padR - 2);
   // playhead
-  ctx.strokeStyle = css("--ink"); ctx.lineWidth = 1.5; ctx.beginPath();
+  ctx.strokeStyle = css("--ink"); ctx.lineWidth = 1; ctx.beginPath();
   ctx.moveTo(x(Math.min(T, video.currentTime || 0)), padT); ctx.lineTo(x(Math.min(T, video.currentTime || 0)), padT + ih); ctx.stroke();
   c._map = { padL, iw, T };
 }
@@ -817,13 +811,13 @@ async function loadSample() {
     $("hand").value = s.settings.hand; $("view").value = s.settings.view;
     result = { raw: s.raw, aspect: s.aspect, settings: s.settings };
     await rebuild(s.anchor);
-  } catch (e) { console.warn("sample not loaded", e); $("source").textContent = "選一段影片開始分析。"; }
+  } catch (e) { console.warn("sample not loaded", e); $("source").innerHTML = "<em>SRC</em> 尚未匯入影片"; }
 }
 window.__exportResult = () => JSON.stringify({ raw: result.raw, aspect: result.aspect, settings: result.settings, anchor: result.anchor });
 window.__summary = () => ({ summary: result.summary, thr: result.series.thr, coverage: result.coverage, strokes: result.strokes.map(({ thumb, ...s }) => s) });
 loadSample();
 initModel().then(() => {
-  setStatus(result ? "姿態模型已就緒。上方是範例的分析結果；選擇你自己的影片即可分析。" : "姿態模型已就緒，請選擇影片。");
+  setStatus(result ? "模型就緒 · 目前是範例結果，按「匯入影片」分析你的影片" : "模型就緒 · 按「匯入影片」開始");
   if (videoURL && video.readyState >= 2) { ui.run.disabled = false; previewPeople(); }
   window.__ready = true;
 }).catch((e) => { console.error(e); setStatus(`姿態模型載入失敗：${e.message || e}。請重新整理頁面再試一次。`, true); });
