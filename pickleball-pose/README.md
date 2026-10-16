@@ -14,6 +14,15 @@
 - `index.html`：整個 App（HTML、CSS、JS）
 - `fetch_assets.sh`：下載 MediaPipe 執行檔（`mp/`）與姿態模型（`models/`），這些檔案太大，沒有放進 git
 
+## 即時計分（score.html）
+網址：https://fonghh.github.io/Funny/score.html
+
+手機架在底線後方拍整面場，邊錄邊計分（雙打、傳統計分 0-0-2）。
+- `ball.js`：找球（黃綠色＋有移動的小色塊）、追蹤軌跡、找落地點、判斷一球的開始與結束、計分規則
+- `court.js`：球場白線辨識（分析頁與計分頁共用；分析頁另有一份內嵌在 `index.html`）
+- 判斷誰贏：看最後一次落地。某一邊界內沒被接回 → 那一邊輸；某一邊界外 → 對面打出界，那一邊贏
+- 自動判斷會先提示，幾秒內可以改判；也能直接手動按誰贏、復原
+
 ## 網站（GitHub Pages）
 網址：https://fonghh.github.io/Funny/
 

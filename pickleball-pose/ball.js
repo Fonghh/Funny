@@ -1,0 +1,161 @@
+// Ball finding, tracking, bounce and rally-end detection for live scoring.
+// Plain functions and classes with no DOM, so the same code runs in the page and in tests.
+// Coordinates are pixels of the processing frame (about 640 px wide); court coordinates come from court.js.
+
+// Yellow / yellow-green, saturated and bright: the colours pickleballs come in.
+function isBallColour(r, g, b) {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  if (mx < 110 || mx - mn < 0.3 * mx) return false;
+  let hue;
+  if (mx === r) hue = 60 * (((g - b) / (mx - mn)) % 6);
+  else if (mx === g) hue = 60 * ((b - r) / (mx - mn) + 2);
+  else return false;
+  return hue >= 48 && hue <= 95;
+}
+
+// Ball candidates: small ball-coloured blobs that moved since the previous frame.
+// prevGray (Uint8Array or null) is updated in place for the next call. roi = [x0, y0, x1, y1] or null.
+function ballCandidates(rgba, w, h, prevGray, roi) {
+  const N = w * h, gray = new Uint8Array(N), col = new Uint8Array(N);
+  const [rx0, ry0, rx1, ry1] = roi || [0, 0, w, h];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, p = i * 4, r = rgba[p], g = rgba[p + 1], b = rgba[p + 2];
+    gray[i] = (r * 77 + g * 150 + b * 29) >> 8;
+    if (x >= rx0 && x < rx1 && y >= ry0 && y < ry1 && isBallColour(r, g, b)) col[i] = 1;
+  }
+  const out = [];
+  if (prevGray) {
+    const seen = new Uint8Array(N), stack = [];
+    for (let i = 0; i < N; i++) {
+      if (!col[i] || seen[i]) continue;
+      let n = 0, sx = 0, sy = 0, x0 = w, x1 = 0, y0 = h, y1 = 0, moved = false;
+      stack.push(i); seen[i] = 1;
+      while (stack.length) {
+        const j = stack.pop(), x = j % w, y = (j / w) | 0;
+        n++; sx += x; sy += y; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+        if (Math.abs(gray[j] - prevGray[j]) > 18) moved = true;
+        if (n > 400) continue;
+        for (const k of [j - 1, j + 1, j - w, j + w]) if (k >= 0 && k < N && col[k] && !seen[k]) { seen[k] = 1; stack.push(k); }
+      }
+      const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+      if (moved && n >= 2 && n <= 180 && Math.max(bw, bh) <= 6 * Math.min(bw, bh)) out.push({ x: sx / n, y: sy / n, a: n });
+    }
+  }
+  return { cands: out, gray };
+}
+
+// Links candidates over time into tracks with a constant-velocity guess.
+class BallTracker {
+  constructor(scale = 1) { this.tracks = []; this.s = scale; this.nextId = 1; }
+  update(t, cands) {
+    const used = new Set();
+    for (const tr of this.tracks) {
+      if (tr.dead) continue;
+      const last = tr.pts[tr.pts.length - 1], gap = t - last.t;
+      if (gap > 0.25) { tr.dead = true; continue; }
+      let vx = 0, vy = 0;
+      if (tr.pts.length >= 2) { const p = tr.pts[tr.pts.length - 2]; vx = (last.x - p.x) / (last.t - p.t); vy = (last.y - p.y) / (last.t - p.t); }
+      const ex = last.x + vx * gap, ey = last.y + vy * gap;
+      let best = -1, bd = 1e9;
+      cands.forEach((c, k) => { if (used.has(k)) return; const d = Math.hypot(c.x - ex, c.y - ey); if (d < bd) { bd = d; best = k; } });
+      if (best >= 0 && bd < this.s * (17 + 500 * gap)) { used.add(best); tr.pts.push({ t, ...cands[best] }); }
+    }
+    cands.forEach((c, k) => { if (!used.has(k)) this.tracks.push({ id: this.nextId++, pts: [{ t, ...c }], dead: false }); });
+    this.tracks = this.tracks.filter((tr) => !tr.dead || tr.pts.length >= 8);
+    if (this.tracks.length > 60) this.tracks.splice(0, this.tracks.length - 60);
+  }
+  // the ball: the live track that has moved the most
+  main() {
+    let best = null, bs = 0;
+    for (const tr of this.tracks) {
+      if (tr.dead || tr.pts.length < 4) continue;
+      const a = tr.pts[0], b = tr.pts[tr.pts.length - 1], s = Math.hypot(b.x - a.x, b.y - a.y) + tr.pts.length;
+      if (s > bs) { bs = s; best = tr; }
+    }
+    return best;
+  }
+}
+
+// Follows rallies: starts when a ball track is clearly moving, ends when the ball has been gone for a while.
+// Bounces are the low points of the ball's path in the image whose ground position is plausible on the court.
+// Outcome rule: the last bounce decides. In on side X: X failed to return it, so the other side wins.
+// Out on side X's end: the other side hit it out, so X wins. A net ball drops on the hitter's side and counts as in there.
+class RallyJudge {
+  constructor({ endAfter = 2, cooldown = 1.5, minRally = 1.5 } = {}) {
+    this.minRally = minRally;
+    this.endAfter = endAfter; this.cooldown = cooldown;
+    this.state = "idle"; this.bounces = []; this.lastSeen = 0; this.endedAt = -1e9; this.trackId = null; this.ptsSeen = 0; this.path = [];
+  }
+  // t: seconds; ball: main track or null; toCourt(x, y) -> [cx, cy] in feet or null when there is no court
+  step(t, ball, toCourt) {
+    const events = [];
+    const fresh = ball && ball.pts[ball.pts.length - 1].t === t;
+    if (this.state === "idle") {
+      if (ball && fresh && t - this.endedAt > this.cooldown) {
+        const a = ball.pts[0], b = ball.pts[ball.pts.length - 1];
+        if (ball.pts.length >= 10 && Math.hypot(b.x - a.x, b.y - a.y) > 40) {
+          this.state = "rally"; this.bounces = []; this.startedAt = a.t; this.lastSeen = t; this.path = ball.pts.slice(); this.trackId = ball.id;
+          events.push({ type: "start", t: a.t });
+        }
+      }
+      return events;
+    }
+    if (fresh) {
+      this.lastSeen = t;
+      if (ball.id !== this.trackId) { this.trackId = ball.id; this.path.push(...ball.pts.slice(-1)); }
+      else this.path.push(ball.pts[ball.pts.length - 1]);
+      const bounce = this.findBounce(toCourt);
+      if (bounce) { this.bounces.push(bounce); events.push({ type: "bounce", ...bounce }); }
+    }
+    if (t - this.lastSeen > this.endAfter) {
+      this.state = "idle"; this.endedAt = t;
+      // a "rally" shorter than a serve plus its bounce was something else moving (a ball being picked up, a toss)
+      if (this.lastSeen - this.startedAt >= this.minRally || this.bounces.length) events.push({ type: "end", t, ...this.outcome() });
+      else events.push({ type: "cancel", t });
+    }
+    return events;
+  }
+  // a low point (largest image y) four samples back, standing out from both sides
+  findBounce(toCourt) {
+    const p = this.path, n = p.length, k = 4;
+    if (n < 2 * k + 1) return null;
+    const i = n - 1 - k, c = p[i];
+    for (let j = i - k; j <= i + k; j++) if (j !== i && p[j].y > c.y) return null;
+    const rise = (a, b) => Math.max(...p.slice(a, b).map((q) => c.y - q.y));
+    if (rise(i - k, i) < 3 || rise(i + 1, i + k + 1) < 3) return null;
+    if (this.bounces.length && c.t - this.bounces[this.bounces.length - 1].t < 0.15) return null;
+    const g = toCourt ? toCourt(c.x, c.y) : null;
+    if (!g) return { t: c.t, x: c.x, y: c.y, court: null };
+    const [cx, cy] = g;
+    if (!(cx > -6 && cx < 26 && Math.abs(cy) < 28)) return null;      // in the air (a hit), not on the floor
+    const margin = 0.3, inside = cx >= -margin && cx <= 20 + margin && Math.abs(cy) <= 22 + margin;
+    return { t: c.t, x: c.x, y: c.y, court: [cx, cy], side: cy >= 0 ? "near" : "far", in: inside };
+  }
+  outcome() {
+    const b = [...this.bounces].reverse().find((q) => q.court);
+    if (!b) return { winner: null, reason: "沒看清楚球的落點" };
+    const other = b.side === "near" ? "far" : "near", where = b.side === "near" ? "近端" : "遠端";
+    return b.in
+      ? { winner: other, reason: `球最後落在${where}界內，沒被接回`, bounce: b }
+      : { winner: b.side, reason: `球落在${where}界外（對方打出界）`, bounce: b };
+  }
+}
+
+// Traditional (side-out) doubles scoring. Teams are "A" and "B"; the game starts 0-0-2.
+class SideOutGame {
+  constructor({ firstServer = "A", target = 11 } = {}) {
+    this.target = target; this.score = { A: 0, B: 0 }; this.serving = firstServer; this.server = 2; this.history = []; this.winner = null;
+  }
+  other(team) { return team === "A" ? "B" : "A"; }
+  rally(winnerTeam) {
+    if (this.winner) return;
+    this.history.push(JSON.stringify({ score: this.score, serving: this.serving, server: this.server, winner: this.winner }));
+    if (winnerTeam === this.serving) this.score[winnerTeam]++;
+    else if (this.server === 1) this.server = 2;
+    else { this.serving = this.other(this.serving); this.server = 1; }
+    const s = this.score, lead = Math.abs(s.A - s.B), top = Math.max(s.A, s.B);
+    if (top >= this.target && lead >= 2) this.winner = s.A > s.B ? "A" : "B";
+  }
+  undo() { const h = this.history.pop(); if (h) Object.assign(this, JSON.parse(h)); }
+  call() { return `${this.score[this.serving]}-${this.score[this.other(this.serving)]}-${this.server}`; }
+}

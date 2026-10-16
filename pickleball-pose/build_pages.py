@@ -82,6 +82,8 @@ def main():
     src = src.replace('<meta name="claude:viewport-fit-sides" content="cover">\n', "")
     # Pages serves .task files fine, so use the model's real name
     src = src.replace("./models/pose_full.task.wasm", "./models/pose_full.task")
+    # on the site, the analysis page links to the live scoring page
+    src = src.replace('<label class="btn primary pulse" id="importBtn"', '<a class="btn" href="score.html">計分</a>\n    <label class="btn primary pulse" id="importBtn"', 1)
     page = HEAD + src
     # everything before the first element of the app belongs in <head>
     split = page.index('<div class="app">')
@@ -91,6 +93,8 @@ def main():
     (OUT / "index.html").write_text(page, encoding="utf-8")
     (OUT / "manifest.webmanifest").write_text(json.dumps(MANIFEST, ensure_ascii=False, indent=2), encoding="utf-8")
     (OUT / ".nojekyll").write_text("")
+    for f in ("score.html", "ball.js", "court.js"):     # live scoring page and its scripts
+        shutil.copy(HERE / f, OUT / f)
     for d in ("mp",):
         shutil.copytree(HERE / d, OUT / d, dirs_exist_ok=True)
     (OUT / "models").mkdir(exist_ok=True)

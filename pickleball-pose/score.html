@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050709">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PickleScore">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>匹克球即時計分</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: camera on top, scoreboard and rally buttons below; side by side in landscape. Same dark HUD look as the analysis page. */
+:root {
+  --bg: #050709; --panel: #0b1014; --panel-2: #10171c; --line: #1c272e; --line-hi: #2b3a43;
+  --ink: #e8f0f2; --muted: #7d8f97; --cyan: #3fd4ff; --cyan-dim: rgba(63, 212, 255, .14);
+  --ball: #f3d23c; --good: #44e0a0; --warn: #ffb547; --bad: #ff5d6c; --blue: #3b8bff;
+  --display: "Chakra Petch", "Noto Sans TC", system-ui, sans-serif;
+  --body: "Noto Sans TC", -apple-system, "PingFang TC", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { background: var(--bg); }
+body { margin: 0; color: var(--ink); font-family: var(--body); font-size: 14px; line-height: 1.5; -webkit-text-size-adjust: 100%; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.app {
+  max-width: 1100px; margin: 0 auto; display: grid; gap: 8px;
+  padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); padding-block: 8px 32px;
+}
+@media (orientation: landscape) and (min-width: 700px) {
+  .app { grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); align-items: start; }
+  .bar, .more { grid-column: 1 / -1; }
+}
+button, select, input, .btn { font: inherit; color: var(--ink); }
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.bar { display: flex; align-items: center; gap: 8px; min-height: 40px; }
+.brand { margin-right: auto; display: flex; gap: 6px; align-items: baseline; }
+.brand b { font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: .06em; }
+.brand b i { font-style: normal; color: var(--cyan); }
+.brand span { font-family: var(--mono); font-size: 10px; color: var(--ball); border: 1px solid currentColor; padding: 0 5px; border-radius: 3px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; min-height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-hi); background: var(--panel-2); font-size: 14px; font-weight: 500; white-space: nowrap; text-decoration: none; }
+.btn.primary { background: var(--cyan); border-color: var(--cyan); color: var(--bg); font-weight: 700; box-shadow: 0 0 14px rgba(63, 212, 255, .35); }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+
+.stage { display: grid; gap: 6px; min-width: 0; }
+.viewer { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.viewer video, .viewer canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.viewer video { object-fit: fill; }
+.viewer .chip { position: absolute; top: 8px; left: 8px; font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(5,7,9,.75); border: 1px solid var(--line-hi); color: var(--muted); }
+.viewer .chip.live { color: var(--good); border-color: var(--good); }
+.viewer .chip.rally { color: var(--ball); border-color: var(--ball); }
+.viewer .start { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 16px; text-align: center; background: radial-gradient(ellipse at center, rgba(63,212,255,.10), transparent 70%); }
+.viewer .start p { margin: 0; color: var(--muted); font-size: 12px; max-width: 30ch; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.status { font-family: var(--mono); font-size: 11px; color: var(--muted); min-height: 16px; }
+.status.err { color: var(--bad); }
+
+.board { display: grid; gap: 8px; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.call { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.call b { font-family: var(--display); font-size: clamp(40px, 12vw, 54px); line-height: 1; font-weight: 700; letter-spacing: .04em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.call span { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: right; min-width: 0; }
+@media (orientation: landscape) and (max-height: 500px) {
+  .call span { display: none; }
+  .team { padding: 5px 10px; } .team .pts { font-size: 28px; }
+  .big .btn { min-height: 46px; }
+}
+.teams { display: grid; gap: 6px; }
+.team { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
+.team.serving { border-color: var(--ball); }
+.team .nm { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.team .nm b { font-weight: 700; }
+.team .nm small { color: var(--muted); font-size: 12px; }
+.team .sv { font-family: var(--mono); font-size: 11px; color: var(--ball); }
+.team .pts { font-family: var(--display); font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.win { text-align: center; font-weight: 700; color: var(--good); }
+
+.propose { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--ball); border-radius: 10px; background: rgba(243, 210, 60, .07); }
+.propose .q { font-size: 15px; font-weight: 700; }
+.propose .why { font-size: 12px; color: var(--muted); }
+.propose .cd { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.propose .cd i { display: block; height: 100%; width: 100%; background: var(--ball); transform-origin: left; }
+.big { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.big .btn { min-height: 56px; font-size: 15px; font-weight: 700; white-space: normal; text-align: center; line-height: 1.3; }
+.tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+
+.more { display: grid; gap: 8px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.more h2 { margin: 0; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; color: var(--muted); font-weight: 500; }
+.settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.settings label { display: grid; gap: 3px; font-size: 11px; color: var(--muted); min-width: 0; }
+.settings select { width: 100%; min-height: 36px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line-hi); background: var(--panel-2); font-size: 13px; }
+.log { list-style: none; margin: 0; padding: 0; display: grid; font-size: 13px; max-height: 260px; overflow-y: auto; }
+.log li { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; padding-block: 6px; border-bottom: 1px solid var(--line); align-items: baseline; }
+.log .n { font-family: var(--mono); color: var(--muted); font-size: 11px; }
+.log .why { color: var(--muted); font-size: 12px; }
+.log .c { font-family: var(--mono); color: var(--ink); }
+.log .auto { color: var(--ball); font-size: 11px; margin-left: 4px; }
+details { color: var(--muted); font-size: 13px; }
+details summary { cursor: pointer; color: var(--ink); }
+details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="brand"><b>PICKLE<i>/</i>SCORE</b><span>參考用</span></div>
+    <a class="btn" href="./">動作分析</a>
+  </header>
+
+  <section class="stage" aria-label="鏡頭">
+    <div class="viewer" id="viewer">
+      <video id="cam" playsinline muted autoplay></video>
+      <canvas id="overlay" aria-label="球場線、球的軌跡與落點"></canvas>
+      <span class="chip" id="chip">未開始</span>
+      <div class="start" id="startPane">
+        <button class="btn primary" id="camBtn" type="button">開啟鏡頭開始計分</button>
+        <label class="btn" for="file">用錄好的影片測試</label>
+        <input type="file" id="file" accept="video/*">
+        <p>手機橫放、架高固定在底線後方，拍到整面球場。</p>
+      </div>
+    </div>
+    <div class="row">
+      <button class="btn" id="calBtn" type="button" disabled>重新校正球場</button>
+      <button class="btn" id="stopBtn" type="button" disabled>停止</button>
+    </div>
+    <div class="status" id="status" role="status">開啟鏡頭後會先自動辨識球場。</div>
+  </section>
+
+  <section class="board" aria-label="比分">
+    <div class="call"><b id="call">0-0-2</b><span id="callNote">發球方分數－接發方分數－發球員</span></div>
+    <div class="teams">
+      <div class="team" id="teamA"><div class="nm"><b>A 隊</b><small id="sideA">近端</small><span class="sv" id="svA"></span></div><span class="pts" id="ptsA">0</span></div>
+      <div class="team" id="teamB"><div class="nm"><b>B 隊</b><small id="sideB">遠端</small><span class="sv" id="svB"></span></div><span class="pts" id="ptsB">0</span></div>
+    </div>
+    <div class="win" id="winMsg" hidden></div>
+
+    <div class="propose" id="propose" hidden>
+      <div class="q" id="pq"></div>
+      <div class="why" id="pwhy"></div>
+      <div class="cd"><i id="pcd"></i></div>
+      <div class="big"><button class="btn primary" id="pOk" type="button">確認</button><button class="btn" id="pFlip" type="button">改判</button></div>
+    </div>
+
+    <div class="big">
+      <button class="btn" id="nearWin" type="button">近端隊贏這球</button>
+      <button class="btn" id="farWin" type="button">遠端隊贏這球</button>
+    </div>
+    <div class="tools">
+      <button class="btn" id="undoBtn" type="button">復原</button>
+      <button class="btn" id="swapBtn" type="button">交換場地</button>
+      <button class="btn" id="newBtn" type="button">新局</button>
+    </div>
+  </section>
+
+  <section class="more" aria-labelledby="h-log">
+    <h2 id="h-log">每一球紀錄</h2>
+    <ul class="log" id="log"><li><span class="n">—</span><span class="why">還沒有紀錄。偵測到一球結束時會自動判斷，5 秒內可以改判。</span><span></span></li></ul>
+  </section>
+
+  <section class="more" aria-labelledby="h-set">
+    <h2 id="h-set">設定</h2>
+    <div class="settings">
+      <label>先發球<select id="firstServe"><option value="A">A 隊</option><option value="B">B 隊</option></select></label>
+      <label>局分<select id="target"><option value="11">11 分</option><option value="15">15 分</option><option value="21">21 分</option></select></label>
+      <label>球場線<select id="courtType"><option value="pickleball">匹克球場</option><option value="badminton">羽球場改打</option></select></label>
+      <label>自動確認<select id="autoSec"><option value="5">5 秒</option><option value="8">8 秒</option><option value="0">不自動，要手動按</option></select></label>
+    </div>
+    <details>
+      <summary>怎麼架手機、怎麼判斷</summary>
+      <ul>
+        <li>手機橫放，架在底線後方、越高越好（腳架或綁在圍網上），整面場都要入鏡，拍攝中不要移動。</li>
+        <li>球的顏色要是黃色或黃綠色。開始後畫面會畫出青色球場線；沒對準就按「重新校正球場」。</li>
+        <li>一球的開始與結束：看到球在動就開始，球消失約 2 秒就算結束。</li>
+        <li>誰贏：看最後一次落地。落在某一邊界內沒被接回，那一邊輸；落在某一邊界外，是對面打出界，那一邊贏。</li>
+        <li>計分用傳統雙打規則：只有發球方能得分，0-0-2 開局，1 號、2 號發球員輪完才換發。</li>
+        <li>自動判斷只供參考，判錯就按「改判」或「復原」。</li>
+      </ul>
+    </details>
+  </section>
+</div>
+
+<script src="court.js"></script>
+<script src="ball.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const cam = $("cam"), overlay = $("overlay"), octx = overlay.getContext("2d");
+const proc = document.createElement("canvas"), pctx = proc.getContext("2d", { willReadFrequently: true });
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function setStatus(msg, err = false) { $("status").textContent = msg; $("status").classList.toggle("err", err); }
+
+// ---------- game state ----------
+let game = newGame(), nearTeam = "A";           // which team stands on the near (camera) side
+const log = [];
+function newGame() { return new SideOutGame({ firstServer: $("firstServe").value, target: +$("target").value }); }
+const teamOf = (side) => side === "near" ? nearTeam : (nearTeam === "A" ? "B" : "A");
+const sideOf = (team) => team === nearTeam ? "near" : "far";
+const sideName = (side) => side === "near" ? "近端" : "遠端";
+function renderBoard() {
+  $("call").textContent = game.call();
+  for (const T of ["A", "B"]) {
+    $("pts" + T).textContent = game.score[T];
+    $("team" + T).classList.toggle("serving", game.serving === T);
+    $("sv" + T).textContent = game.serving === T ? `● 發球 ${game.server} 號` : "";
+    $("side" + T).textContent = sideName(sideOf(T));
+  }
+  $("nearWin").textContent = `近端（${nearTeam} 隊）贏這球`;
+  $("farWin").textContent = `遠端（${teamOf("far")} 隊）贏這球`;
+  $("winMsg").hidden = !game.winner;
+  if (game.winner) $("winMsg").textContent = `${game.winner} 隊贏得這一局！`;
+}
+function award(side, reason, auto) {
+  const before = game.call(), team = teamOf(side);
+  game.rally(team);
+  log.unshift({ n: log.length + 1, t: clock(), team, side, reason, call: game.call(), auto });
+  renderLog(); renderBoard();
+  if (navigator.vibrate) navigator.vibrate(30);
+}
+function renderLog() {
+  $("log").innerHTML = log.map((e) => `<li><span class="n">#${e.n} ${e.t}</span><span>${e.team} 隊贏${e.auto ? '<span class="auto">自動</span>' : ""}<br><span class="why">${e.reason}</span></span><span class="c">${e.call}</span></li>`).join("")
+    || `<li><span class="n">—</span><span class="why">還沒有紀錄。</span><span></span></li>`;
+}
+const t0 = Date.now();
+function clock() { const s = Math.floor((Date.now() - t0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
+$("nearWin").addEventListener("click", () => { clearProposal(); award("near", "手動", false); });
+$("farWin").addEventListener("click", () => { clearProposal(); award("far", "手動", false); });
+$("undoBtn").addEventListener("click", () => { clearProposal(); game.undo(); log.shift(); renderLog(); renderBoard(); });
+$("swapBtn").addEventListener("click", () => { nearTeam = nearTeam === "A" ? "B" : "A"; renderBoard(); });
+$("newBtn").addEventListener("click", () => { clearProposal(); game = newGame(); log.length = 0; renderLog(); renderBoard(); });
+// before the first point, changing who serves first or the game length applies right away; later it waits for a new game
+for (const id of ["firstServe", "target"]) $(id).addEventListener("change", () => { if (!log.length) { game = newGame(); renderBoard(); } });
+
+// ---------- proposal after a detected rally end ----------
+let proposal = null, propTimer = 0;
+function propose(ev) {
+  clearProposal();
+  if (game.winner) return;
+  proposal = ev;
+  $("propose").hidden = false;
+  if (!ev.winner) {
+    $("pq").textContent = "這球誰贏？"; $("pwhy").textContent = ev.reason + "，請手動選擇。";
+    $("pOk").hidden = true; $("pFlip").hidden = true; $("pcd").parentElement.hidden = true;
+    return;
+  }
+  $("pOk").hidden = false; $("pFlip").hidden = false; $("pcd").parentElement.hidden = false;
+  $("pq").textContent = `${sideName(ev.winner)}（${teamOf(ev.winner)} 隊）贏這球？`;
+  $("pwhy").textContent = ev.reason;
+  $("pFlip").textContent = `改成${sideName(ev.winner === "near" ? "far" : "near")}贏`;
+  const sec = +$("autoSec").value, bar = $("pcd");
+  bar.style.transition = "none"; bar.style.transform = "scaleX(1)";
+  if (sec > 0) {
+    requestAnimationFrame(() => { bar.style.transition = `transform ${sec}s linear`; bar.style.transform = "scaleX(0)"; });
+    propTimer = setTimeout(() => accept(false), sec * 1000);
+  }
+}
+function accept(flip) {
+  if (!proposal || !proposal.winner) return;
+  const side = flip ? (proposal.winner === "near" ? "far" : "near") : proposal.winner;
+  const reason = flip ? `改判（原判：${proposal.reason}）` : proposal.reason;
+  award(side, reason, !flip);
+  clearProposal();
+}
+function clearProposal() { clearTimeout(propTimer); proposal = null; $("propose").hidden = true; }
+$("pOk").addEventListener("click", () => accept(false));
+$("pFlip").addEventListener("click", () => accept(true));
+
+// ---------- video source: camera or a recorded file ----------
+let running = false, tracker, judge, prevGray = null, court = null, lastCourtT = -1e9, roi = null, bouncesShown = [], wakeLock = null, fileMode = false;
+function resetPipeline() { tracker = new BallTracker(1); judge = new RallyJudge(); prevGray = null; bouncesShown = []; }
+$("camBtn").addEventListener("click", async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } } });
+    cam.srcObject = stream; fileMode = false;
+    await cam.play();
+    try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
+    start();
+  } catch (e) {
+    setStatus(`無法開啟鏡頭：${e.message || e}。請允許這個網站使用相機。`, true);
+  }
+});
+$("file").addEventListener("change", async () => {
+  const f = $("file").files[0]; if (!f) return;
+  cam.srcObject = null; cam.src = URL.createObjectURL(f); fileMode = true; cam.loop = false;
+  try { await cam.play(); } catch (e) { setStatus("影片無法播放，請換一段。", true); return; }
+  start();
+});
+$("stopBtn").addEventListener("click", stop);
+$("calBtn").addEventListener("click", recalibrate);
+$("courtType").addEventListener("change", recalibrate);
+function recalibrate() { lastCourtT = -1e9; court = null; roi = null; setStatus("校正球場中…"); }
+function start() {
+  $("startPane").hidden = true; $("calBtn").disabled = false; $("stopBtn").disabled = false;
+  running = true; resetPipeline(); court = null; lastCourtT = -1e9;
+  setChip("live", "LIVE · 等待發球");
+  schedule();
+}
+function stop() {
+  running = false;
+  if (cam.srcObject) { cam.srcObject.getTracks().forEach((t) => t.stop()); cam.srcObject = null; }
+  cam.pause(); wakeLock?.release?.(); wakeLock = null;
+  $("startPane").hidden = false; $("calBtn").disabled = true; $("stopBtn").disabled = true;
+  setChip("", "未開始"); setStatus("已停止。");
+}
+function setChip(cls, text) { const c = $("chip"); c.className = "chip " + cls; c.textContent = text; }
+function schedule() {
+  if (!running) return;
+  if (cam.requestVideoFrameCallback) cam.requestVideoFrameCallback((now, meta) => { onFrame(meta.mediaTime); schedule(); });
+  else requestAnimationFrame(() => { onFrame(cam.currentTime); schedule(); });
+}
+cam.addEventListener("ended", () => {
+  // let the last rally finish: feed a couple of seconds of "no ball"
+  let t = cam.currentTime; const id = setInterval(() => { t += 0.05; step(t, []); if (t > cam.currentTime + 2.5) { clearInterval(id); setChip("", "影片結束"); } }, 50);
+});
+
+// ---------- per-frame work ----------
+const dbg = { frames: 0, cands: 0, events: [], courts: [] };
+function onFrame(t) {
+  if (!cam.videoWidth) return;
+  dbg.frames++;
+  const w = 640, h = Math.round(640 * cam.videoHeight / cam.videoWidth);
+  if (proc.width !== w || proc.height !== h) { proc.width = w; proc.height = h; prevGray = null; }
+  pctx.drawImage(cam, 0, 0, w, h);
+  const rgba = pctx.getImageData(0, 0, w, h).data;
+  // court: at the start, when asked, and every 10 s between rallies (it takes a few hundred ms)
+  if (!court ? t - lastCourtT > 1 : (judge.state === "idle" && t - lastCourtT > 10)) {
+    lastCourtT = t;
+    const c = detectCourt(rgba, w, h, null, $("courtType").value);
+    dbg.courts.push({ t: +t.toFixed(2), ok: !!c, tpl: c?.template, hit: c?.hit, miss: c?.miss });
+    if (c) { court = c; roi = courtRoi(c, w, h); setStatus("已辨識球場（青色虛線）。看到球在動就開始判斷；線沒對準就按「重新校正球場」。"); }
+    else if (!court) setStatus("還沒找到球場白線：手機架高、橫放，整面場入鏡後會自動辨識。");
+  }
+  const { cands, gray } = ballCandidates(rgba, w, h, prevGray, roi);
+  prevGray = gray; dbg.cands += cands.length;
+  step(t, cands);
+}
+function step(t, cands) {
+  tracker.update(t, cands);
+  const w = proc.width, h = proc.height;
+  const toCourt = court ? (x, y) => hApply(court.i2m, x / w, y / h).slice(0, 2) : null;
+  for (const e of judge.step(t, tracker.main(), toCourt)) {
+    dbg.events.push({ type: e.type, t: +(e.t ?? t).toFixed(2), court: e.court?.map((v) => +v.toFixed(1)), in: e.in, winner: e.winner });
+    if (e.type === "start") { setChip("rally", "RALLY · 進行中"); bouncesShown = []; }
+    if (e.type === "bounce") bouncesShown.push(e);
+    if (e.type === "end") { setChip("live", "LIVE · 等待發球"); propose(e); }
+    if (e.type === "cancel") { setChip("live", "LIVE · 等待發球"); bouncesShown = []; }
+  }
+  draw();
+}
+// search area: the court's image bounds, widened, plus everything above it (balls fly high)
+function courtRoi(c, w, h) {
+  const pts = [[0, -22], [20, -22], [20, 22], [0, 22]].map(([x, y]) => hApply(c.m2i, x, y)).filter((p) => p[2] > 0).map((p) => [p[0] * w, p[1] * h]);
+  if (pts.length < 2) return null;
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), pad = (x1 - x0) * 0.35;
+  return [Math.max(0, Math.floor(x0 - pad)), 0, Math.min(w, Math.ceil(x1 + pad)), Math.min(h, Math.ceil(Math.max(...ys) + h * 0.05))];
+}
+
+// ---------- overlay ----------
+function draw() {
+  const r = overlay.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  if (overlay.width !== Math.round(r.width * dpr)) { overlay.width = Math.round(r.width * dpr); overlay.height = Math.round(r.height * dpr); }
+  const W = overlay.width, H = overlay.height, sx = W / proc.width, sy = H / proc.height, lw = Math.max(1.5, W / 400);
+  octx.clearRect(0, 0, W, H);
+  if (court) {
+    octx.save(); octx.strokeStyle = css("--cyan"); octx.globalAlpha = 0.6; octx.lineWidth = lw; octx.setLineDash([lw * 3, lw * 2]);
+    for (const [x0, y0, x1, y1] of COURT_TEMPLATES[court.template].lines) {
+      octx.beginPath(); let pen = false;
+      for (let k = 0; k <= 10; k++) {
+        const q = hApply(court.m2i, x0 + (x1 - x0) * k / 10, y0 + (y1 - y0) * k / 10);
+        if (q[2] <= 0) { pen = false; continue; }
+        pen ? octx.lineTo(q[0] * W, q[1] * H) : octx.moveTo(q[0] * W, q[1] * H); pen = true;
+      }
+      octx.stroke();
+    }
+    octx.restore();
+  }
+  const ball = tracker.main();
+  if (ball) {
+    const pts = ball.pts.slice(-36);
+    octx.lineCap = "round";
+    for (let i = 1; i < pts.length; i++) {
+      octx.strokeStyle = `rgba(243,210,60,${(i / pts.length).toFixed(2)})`; octx.lineWidth = lw * 2;
+      octx.beginPath(); octx.moveTo(pts[i - 1].x * sx, pts[i - 1].y * sy); octx.lineTo(pts[i].x * sx, pts[i].y * sy); octx.stroke();
+    }
+    const p = pts[pts.length - 1]; octx.fillStyle = css("--ball"); octx.beginPath(); octx.arc(p.x * sx, p.y * sy, lw * 3, 0, Math.PI * 2); octx.fill();
+  }
+  for (const b of bouncesShown) {
+    octx.strokeStyle = b.court ? (b.in ? css("--good") : css("--bad")) : css("--muted"); octx.lineWidth = lw * 1.5;
+    octx.beginPath(); octx.ellipse(b.x * sx, b.y * sy, lw * 6, lw * 3, 0, 0, Math.PI * 2); octx.stroke();
+  }
+}
+window.addEventListener("resize", () => { if (proc.width) draw(); });
+
+renderBoard();
+window.__dbg = dbg;
+window.__score = () => ({ call: game.call(), serving: game.serving, log: log.map((e) => ({ team: e.team, reason: e.reason, call: e.call })), court: !!court, proposal: proposal && { winner: proposal.winner, reason: proposal.reason } });
+</script>
+</body>
+</html>
