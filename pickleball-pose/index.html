@@ -50,7 +50,7 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
   min-height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-hi); background: var(--panel-2);
   font-size: 14px; font-weight: 500; white-space: nowrap;
 }
-.btn.primary { background: var(--cyan); border-color: var(--cyan); color: var(--bg); font-weight: 700; }
+.btn.primary { background: var(--cyan); border-color: var(--cyan); color: var(--bg); font-weight: 700; min-height: 42px; padding: 0 16px; font-size: 15px; box-shadow: 0 0 14px rgba(63, 212, 255, .35); }
 .btn.go { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); font-weight: 700; }
 .btn:disabled { opacity: .35; cursor: not-allowed; }
 .btn.icon { width: 38px; padding: 0; }
@@ -97,8 +97,15 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
 .tile .k { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; }
 .tile .v { font-family: var(--display); font-weight: 600; font-size: 24px; line-height: 1.05; font-variant-numeric: tabular-nums; }
 .tile .v small { font-size: 13px; color: var(--muted); margin-left: 1px; }
-.toptip { display: flex; gap: 8px; align-items: center; font-size: 13px; min-height: 22px; min-width: 0; }
-.toptip b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.hud-head span { text-transform: none; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cta { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4px; padding: 16px; text-align: center; cursor: pointer;
+  background: radial-gradient(ellipse at center, rgba(63, 212, 255, .10), transparent 70%); }
+.cta .plus { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 50%; border: 2px solid var(--cyan); color: var(--cyan); font-size: 28px; line-height: 1; box-shadow: 0 0 18px rgba(63, 212, 255, .45); }
+.cta b { font-family: var(--display); font-size: 18px; letter-spacing: .04em; color: var(--ink); }
+.cta small { font-size: 11px; color: var(--muted); max-width: 26ch; }
+.btn.primary.pulse { animation: pulse 1.8s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 14px rgba(63, 212, 255, .35), 0 0 0 0 rgba(63, 212, 255, .6); } 70% { box-shadow: 0 0 14px rgba(63, 212, 255, .35), 0 0 0 8px rgba(63, 212, 255, 0); } }
+@media (prefers-reduced-motion: reduce) { .btn.primary.pulse { animation: none; } }
 .chip { flex: none; font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
 .chip.good { color: var(--good); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--bad); }
 #chart { width: 100%; height: 72px; display: block; cursor: pointer; }
@@ -118,7 +125,8 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
 .more { display: grid; gap: 8px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .more h2 { margin: 0; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; color: var(--muted); font-weight: 500; text-transform: uppercase; }
 .tips { list-style: none; margin: 0; padding: 0; display: grid; }
-.tip { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: start; padding-block: 9px; border-bottom: 1px solid var(--line); }
+.tip { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: start; padding-block: 7px; border-bottom: 1px solid var(--line); }
+.tips .empty { padding: 6px 0; }
 .tip:last-child { border-bottom: 0; }
 .tip b { font-weight: 500; }
 .tip p { grid-column: 2; margin: 0; color: var(--muted); font-size: 13px; }
@@ -134,7 +142,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     <button class="btn icon" id="gear" type="button" aria-expanded="false" aria-controls="settings" aria-label="分析設定">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
     </button>
-    <label class="btn primary" for="file">＋ 匯入影片</label>
+    <label class="btn primary pulse" id="importBtn" for="file">＋ 匯入影片</label>
     <input type="file" id="file" accept="video/*">
   </header>
 
@@ -167,7 +175,8 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
       <video id="video" playsinline muted preload="auto"></video>
       <canvas id="overlay" tabindex="0" aria-label="骨架疊圖，點選球員可選擇分析對象"></canvas>
       <i class="corner c1"></i><i class="corner c2"></i><i class="corner c3"></i><i class="corner c4"></i>
-      <div class="src" id="source"><em>SRC</em> 範例 IMG_3362</div>
+      <div class="src" id="source"><em>SRC</em> 尚未匯入影片</div>
+      <label class="cta" id="cta" for="file"><span class="plus">＋</span><b>匯入影片</b><small>從相簿選一段對打影片・影片只在手機上分析，不會上傳</small></label>
       <div class="hint" id="hint" hidden></div>
       <div class="prog" aria-hidden="true"><i id="bar"></i></div>
     </div>
@@ -185,16 +194,19 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
   <div class="status" id="status" role="status">正在載入姿態模型…</div>
 
   <section class="hud" aria-label="分析結果">
-    <div class="hud-head"><b>RESULT</b><span id="sumNote"></span><a href="#advice">全部建議 ↓</a></div>
+    <div class="hud-head"><b>RESULT</b><span id="sumNote"></span></div>
     <div class="tiles" id="tiles"></div>
-    <div class="toptip" id="toptip"></div>
-    <canvas id="chart" tabindex="0" aria-label="膝蓋角度與手腕速度時間軸，點一下跳到該時間"></canvas>
-    <div class="strip" id="strokes"></div>
   </section>
 
-  <section class="more" id="advice" aria-labelledby="h-tips">
-    <h2 id="h-tips">改進建議</h2>
-    <ul class="tips" id="tips"></ul>
+  <section class="hud" id="advice" aria-labelledby="h-tips">
+    <div class="hud-head"><b id="h-tips">改進建議</b></div>
+    <ul class="tips" id="tips"><li class="empty">匯入影片並按「分析」後，這裡會列出改進建議。</li></ul>
+  </section>
+
+  <section class="hud" aria-labelledby="h-detail">
+    <div class="hud-head"><b id="h-detail">分析細節</b><span>時間軸點一下可跳轉・卡片點一下以 ¼ 速重播</span></div>
+    <canvas id="chart" tabindex="0" aria-label="膝蓋角度與手腕速度時間軸，點一下跳到該時間"></canvas>
+    <div class="strip" id="strokes"><p class="empty">分析後會列出每一拍的截圖。</p></div>
   </section>
 
   <section class="more">
@@ -558,6 +570,7 @@ overlay.addEventListener("click", async (e) => {
 ui.file.addEventListener("change", async () => {
   const f = ui.file.files[0]; if (!f) return;
   if (videoURL) URL.revokeObjectURL(videoURL);
+  $("cta").hidden = true; $("importBtn").classList.remove("pulse");
   videoURL = URL.createObjectURL(f);
   result = null; candidates = []; pickedIdx = -1;
   clearResults();
@@ -665,8 +678,15 @@ $("hand").addEventListener("change", () => { if (result && !analyzing) { result.
 $("view").addEventListener("change", () => { if (result && !analyzing) { result.settings.view = $("view").value; rebuild(result.anchor); } });
 
 // ---------- results UI ----------
+function renderEmpty() {
+  $("sumNote").textContent = "";
+  $("tiles").innerHTML = ["擊球", "擊球屈膝", "拍在腰上", "擊球在前"].map((k) => `<div class="tile"><span class="k">${k}</span><span class="v">—</span></div>`).join("");
+  $("tips").innerHTML = `<li class="empty">匯入影片並按「分析」後，這裡會列出改進建議。</li>`;
+  $("strokes").innerHTML = `<p class="empty">分析後會列出每一拍的截圖。</p>`;
+  $("chart").hidden = true;
+}
 function clearResults() {
-  $("tiles").innerHTML = ""; $("tips").innerHTML = ""; $("strokes").innerHTML = ""; $("sumNote").textContent = ""; $("toptip").innerHTML = "";
+  renderEmpty();
   const c = $("chart"); c.getContext("2d").clearRect(0, 0, c.width, c.height);
 }
 const pctTxt = (x) => x == null ? "—" : Math.round(x * 100);
@@ -683,10 +703,11 @@ function renderAll() {
   $("tiles").innerHTML = tiles.map(([k, v, u, st]) =>
     `<div class="tile ${st}"><span class="k">${k}</span><span class="v">${v}${v === "—" ? "" : `<small>${u}</small>`}</span></div>`).join("");
   const tips = makeTips(result);
-  const top = tips.find((t) => t.level === "bad") || tips.find((t) => t.level === "warn") || tips[0];
-  $("toptip").innerHTML = top ? `<span class="chip ${top.level}">${top.label}</span><b></b>` : "";
-  if (top) $("toptip").querySelector("b").textContent = top.title;
+  // most important first: needs work, then could improve, then the rest
+  const rank = { bad: 0, warn: 1, good: 2 };
+  tips.sort((a, b) => rank[a.level] - rank[b.level]);
   $("tips").innerHTML = tips.map((t) => `<li class="tip"><span class="chip ${t.level}">${t.label}</span><b>${t.title}</b><p>${t.body}</p></li>`).join("");
+  $("chart").hidden = false;
   renderStrokes(); drawChart();
 }
 function makeTips(r) {
@@ -800,24 +821,12 @@ $("chart").addEventListener("click", async (e) => {
 });
 video.addEventListener("timeupdate", () => { if (result && !analyzing) drawChart(); });
 
-// ---------- startup: show the pre-analysed sample, load the model ----------
-async function loadSample() {
-  try {
-    const res = await fetch("./demo/sample.json"); if (!res.ok) throw new Error(res.status);
-    const s = await res.json();
-    video.src = "./demo/sample.mp4"; thumbVideo.src = "./demo/sample.mp4";
-    await new Promise((r) => { video.onloadeddata = r; setTimeout(r, 5000); });
-    setViewerAspect();
-    $("hand").value = s.settings.hand; $("view").value = s.settings.view;
-    result = { raw: s.raw, aspect: s.aspect, settings: s.settings };
-    await rebuild(s.anchor);
-  } catch (e) { console.warn("sample not loaded", e); $("source").innerHTML = "<em>SRC</em> 尚未匯入影片"; }
-}
+// ---------- startup ----------
+renderEmpty();
 window.__exportResult = () => JSON.stringify({ raw: result.raw, aspect: result.aspect, settings: result.settings, anchor: result.anchor });
 window.__summary = () => ({ summary: result.summary, thr: result.series.thr, coverage: result.coverage, strokes: result.strokes.map(({ thumb, ...s }) => s) });
-loadSample();
 initModel().then(() => {
-  setStatus(result ? "模型就緒 · 目前是範例結果，按「匯入影片」分析你的影片" : "模型就緒 · 按「匯入影片」開始");
+  setStatus(videoURL ? `模型就緒 · 點選球員後按「分析」` : "模型就緒 · 按「匯入影片」開始");
   if (videoURL && video.readyState >= 2) { ui.run.disabled = false; previewPeople(); }
   window.__ready = true;
 }).catch((e) => { console.error(e); setStatus(`姿態模型載入失敗：${e.message || e}。請重新整理頁面再試一次。`, true); });
