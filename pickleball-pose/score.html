@@ -47,7 +47,15 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
 .brand b i { font-style: normal; color: var(--cyan); }
 .brand span { font-family: var(--mono); font-size: 10px; color: var(--ball); border: 1px solid currentColor; padding: 0 5px; border-radius: 3px; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; min-height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-hi); background: var(--panel-2); font-size: 14px; font-weight: 500; white-space: nowrap; text-decoration: none; }
-.btn.primary { background: var(--cyan); border-color: var(--cyan); color: var(--bg); font-weight: 700; box-shadow: 0 0 14px rgba(63, 212, 255, .35); }
+/* page switcher: the current page's tab is filled with that page's accent (cyan = analysis, yellow = scoring) */
+.switch { display: inline-flex; padding: 3px; gap: 3px; border: 1px solid var(--line-hi); border-radius: 10px; background: var(--panel); }
+.switch a { display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; border-radius: 7px; font-size: 14px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.switch a.pose { color: var(--cyan); }
+.switch a.score { color: var(--ball); }
+.switch a.pose[aria-current="page"] { background: var(--cyan); color: var(--bg); box-shadow: 0 0 12px rgba(63, 212, 255, .35); }
+.switch a.score[aria-current="page"] { background: var(--ball); color: var(--bg); box-shadow: 0 0 12px rgba(243, 210, 60, .35); }
+@media (max-width: 430px) { .brand span { display: none; } .brand b { font-size: 15px; } .switch a { padding: 0 10px; } }
+.btn.primary { background: var(--ball); border-color: var(--ball); color: var(--bg); font-weight: 700; box-shadow: 0 0 14px rgba(243, 210, 60, .35); }   /* yellow is this page's accent */
 .btn:disabled { opacity: .35; cursor: not-allowed; }
 
 .stage { display: grid; gap: 6px; min-width: 0; }
@@ -118,7 +126,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
 <div class="app">
   <header class="bar">
     <div class="brand"><b>PICKLE<i>/</i>SCORE</b><span>參考用</span></div>
-    <a class="btn" href="./">動作分析</a>
+    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./">賽後分析</a><a class="score" href="score.html" aria-current="page">即時計分</a></nav>
   </header>
 
   <section class="stage" aria-label="鏡頭">

@@ -72,14 +72,19 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
   font-size: 14px; font-weight: 500; white-space: nowrap;
 }
 a.btn { text-decoration: none; }
+/* page switcher: the current page's tab is filled with that page's accent (cyan = analysis, yellow = scoring) */
+.switch { display: inline-flex; padding: 3px; gap: 3px; border: 1px solid var(--line-hi); border-radius: 10px; background: var(--panel); }
+.switch a { display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; border-radius: 7px; font-size: 14px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.switch a.pose { color: var(--cyan); }
+.switch a.score { color: var(--ball); }
+.switch a.pose[aria-current="page"] { background: var(--cyan); color: var(--bg); box-shadow: 0 0 12px rgba(63, 212, 255, .35); }
+.switch a.score[aria-current="page"] { background: var(--ball); color: var(--bg); box-shadow: 0 0 12px rgba(243, 210, 60, .35); }
 @media (max-width: 430px) {
   .bar { gap: 6px; }
-  .brand span { display: none; }          /* drop the 參考用 tag so the buttons fit */
+  .brand span { display: none; }          /* drop the 參考用 tag so the switcher fits */
   .brand b { font-size: 15px; }
-  .bar .btn.primary { padding: 0 12px; font-size: 14px; }
-  .bar .btn.score { padding: 0 10px; }
+  .switch a { padding: 0 10px; }
 }
-.btn.score { border-color: var(--ball); color: var(--ball); background: rgba(243, 210, 60, .12); font-weight: 700; box-shadow: 0 0 10px rgba(243, 210, 60, .25); }
 .btn.primary { background: var(--cyan); border-color: var(--cyan); color: var(--bg); font-weight: 700; min-height: 42px; padding: 0 16px; font-size: 15px; box-shadow: 0 0 14px rgba(63, 212, 255, .35); }
 .btn.go { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); font-weight: 700; }
 .btn:disabled { opacity: .35; cursor: not-allowed; }
@@ -103,6 +108,8 @@ a.btn { text-decoration: none; }
 .viewer .c4 { bottom: 6px; right: 6px; border-left: 0; border-top: 0; }
 .viewer .src { position: absolute; top: 9px; left: 30px; right: 26px; font-family: var(--mono); font-size: 10px; color: var(--ink); text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .viewer .src em { font-style: normal; color: var(--cyan); }
+.viewer .swapvid { position: absolute; top: 6px; right: 26px; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--cyan); color: var(--cyan); background: rgba(5, 7, 9, .7); cursor: pointer; }
+.viewer:has(.swapvid:not([hidden])) .src { right: 100px; }
 .viewer .hint { position: absolute; left: 8px; right: 8px; bottom: 10px; color: var(--ink); background: rgba(5, 7, 9, .78); border: 1px solid var(--line-hi); padding: 5px 8px; border-radius: 6px; font-size: 12px; pointer-events: none; }
 .viewer .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: transparent; }
 .viewer .prog i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); transition: width .2s; }
@@ -133,9 +140,9 @@ a.btn { text-decoration: none; }
 .cta .plus { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 50%; border: 2px solid var(--cyan); color: var(--cyan); font-size: 28px; line-height: 1; box-shadow: 0 0 18px rgba(63, 212, 255, .45); }
 .cta b { font-family: var(--display); font-size: 18px; letter-spacing: .04em; color: var(--ink); }
 .cta small { font-size: 11px; color: var(--muted); max-width: 26ch; }
-.btn.primary.pulse { animation: pulse 1.8s ease-in-out infinite; }
+.cta .plus { animation: pulse 1.8s ease-in-out infinite; }      /* the import prompt is the page's first action */
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 14px rgba(63, 212, 255, .35), 0 0 0 0 rgba(63, 212, 255, .6); } 70% { box-shadow: 0 0 14px rgba(63, 212, 255, .35), 0 0 0 8px rgba(63, 212, 255, 0); } }
-@media (prefers-reduced-motion: reduce) { .btn.primary.pulse { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .cta .plus { animation: none; } }
 .chip { flex: none; font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
 .chip.good { color: var(--good); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--bad); }
 #chart { width: 100%; height: 72px; display: block; cursor: pointer; }
@@ -193,9 +200,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     <button class="btn icon" id="gear" type="button" aria-expanded="false" aria-controls="settings" aria-label="分析設定">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
     </button>
-    <a class="btn score" href="score.html">◉ 計分</a>
-    <label class="btn primary pulse" id="importBtn" for="file">＋ 匯入影片</label>
-    <input type="file" id="file" accept="video/*">
+    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./" aria-current="page">賽後分析</a><a class="score" href="score.html">即時計分</a></nav>
   </header>
 
   <div class="settings" id="settings" hidden>
@@ -228,6 +233,8 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
       <canvas id="overlay" tabindex="0" aria-label="骨架疊圖，點選球員可選擇分析對象"></canvas>
       <i class="corner c1"></i><i class="corner c2"></i><i class="corner c3"></i><i class="corner c4"></i>
       <div class="src" id="source"><em>SRC</em> 尚未匯入影片</div>
+      <label class="swapvid" id="swapVid" for="file" hidden>換影片</label>
+      <input type="file" id="file" accept="video/*">
       <label class="cta" id="cta" for="file"><span class="plus">＋</span><b>匯入影片</b><small>從相簿選一段對打影片・影片只在手機上分析，不會上傳</small></label>
       <div class="hint" id="hint" hidden></div>
       <div class="prog" aria-hidden="true"><i id="bar"></i></div>
@@ -1009,7 +1016,7 @@ overlay.addEventListener("click", async (e) => {
 ui.file.addEventListener("change", async () => {
   const f = ui.file.files[0]; if (!f) return;
   if (videoURL) URL.revokeObjectURL(videoURL);
-  $("cta").hidden = true; $("importBtn").classList.remove("pulse");
+  $("cta").hidden = true; $("swapVid").hidden = false;
   videoURL = URL.createObjectURL(f);
   result = null; candidates = []; pickedIdx = -1; previewCourt = null; ui.run.textContent = "分析 ▸";
   clearResults();

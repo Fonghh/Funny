@@ -82,8 +82,6 @@ def main():
     src = src.replace('<meta name="claude:viewport-fit-sides" content="cover">\n', "")
     # Pages serves .task files fine, so use the model's real name
     src = src.replace("./models/pose_full.task.wasm", "./models/pose_full.task")
-    # on the site, the analysis page links to the live scoring page
-    src = src.replace('<label class="btn primary pulse" id="importBtn"', '<a class="btn score" href="score.html">◉ 計分</a>\n    <label class="btn primary pulse" id="importBtn"', 1)
     page = HEAD + src
     # everything before the first element of the app belongs in <head>
     split = page.index('<div class="app">')
