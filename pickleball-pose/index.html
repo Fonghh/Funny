@@ -13,6 +13,8 @@
   --ink: #e8f0f2;
   --muted: #7d8f97;
   --cyan: #3fd4ff;
+  --blue: #3b8bff;
+  --red: #ff4d5e;
   --cyan-dim: rgba(63, 212, 255, .14);
   --ball: #f3d23c;
   --good: #44e0a0;
@@ -121,6 +123,25 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
 .stroke .flag { color: var(--warn); }
 .empty { color: var(--muted); font-size: 12px; padding: 18px 0; }
 
+/* pose comparison and positioning */
+.key { display: inline-block; width: 12px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+.key.blue { background: var(--blue); } .key.red { background: var(--red); margin-left: 6px; }
+.tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.tabs button { flex: none; font: inherit; font-size: 12px; min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line-hi); background: var(--panel-2); color: var(--muted); cursor: pointer; }
+.tabs button[aria-selected="true"] { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); }
+#poseCanvas, #courtCanvas { width: 100%; height: auto; display: block; border-radius: 6px; background: #000; }
+#courtCanvas { background: var(--panel-2); }
+.fix { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.fix li { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.fix .k { color: var(--muted); min-width: 3.5em; }
+.fix .a { color: var(--blue); font-family: var(--mono); }
+.fix .s { color: var(--red); font-family: var(--mono); }
+.zones { display: grid; gap: 5px; }
+.zone { display: grid; grid-template-columns: 5.2em 1fr 3em; gap: 8px; align-items: center; font-size: 12px; }
+.zone .zb { height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+.zone .zb i { display: block; height: 100%; border-radius: 4px; }
+.zone .p { font-family: var(--mono); text-align: right; }
+
 /* below the fold */
 .more { display: grid; gap: 8px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .more h2 { margin: 0; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; color: var(--muted); font-weight: 500; text-transform: uppercase; }
@@ -203,6 +224,19 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     <ul class="tips" id="tips"><li class="empty">匯入影片並按「分析」後，這裡會列出改進建議。</li></ul>
   </section>
 
+  <section class="hud" aria-labelledby="h-pose">
+    <div class="hud-head"><b id="h-pose">姿勢對照</b><span><i class="key blue"></i>你的姿勢　<i class="key red"></i>建議姿勢</span></div>
+    <div class="tabs" id="poseTabs" role="tablist" aria-label="選擇時間點"></div>
+    <canvas id="poseCanvas" width="720" height="540" aria-label="你的骨架（藍）與建議姿勢（紅）對照"></canvas>
+    <ul class="fix" id="poseFix"></ul>
+  </section>
+
+  <section class="hud" aria-labelledby="h-pos">
+    <div class="hud-head"><b id="h-pos">站位分析</b><span id="posNote">從上方看的球場・你這一側</span></div>
+    <canvas id="courtCanvas" width="640" height="720" aria-label="球員在球場上的位置熱圖與移動軌跡"></canvas>
+    <div class="zones" id="zones"></div>
+  </section>
+
   <section class="hud" aria-labelledby="h-detail">
     <div class="hud-head"><b id="h-detail">分析細節</b><span>時間軸點一下可跳轉・卡片點一下以 ¼ 速重播</span></div>
     <canvas id="chart" tabindex="0" aria-label="膝蓋角度與手腕速度時間軸，點一下跳到該時間"></canvas>
@@ -239,6 +273,8 @@ let candidates = [];          // poses on the current frame, for picking the pla
 let pickedIdx = -1;
 let videoURL = null;
 let analyzing = false;
+let previewCourt = null;      // court found on the preview frame, shown before analysis
+let poseSel = 0;              // which moment the pose comparison shows
 
 function setStatus(msg, err = false) { ui.status.textContent = msg; ui.status.classList.toggle("err", err); }
 function fmtT(t) { const m = Math.floor(t / 60); const s = t - m * 60; return `${m}:${s.toFixed(1).padStart(4, "0")}`; }
@@ -398,11 +434,17 @@ function computeMetrics(frames, { hand, view, aspect }) {
   const readyIdx = frames.map((_, i) => i).filter((i) => ok[i] && strokes.every((s) => Math.abs(s.t - frames[i].t) > 0.35));
   const frac = (arr, fn) => { const v = arr.filter((x) => x != null); return v.length ? v.filter(fn).length / v.length : null; };
   const avg = (a) => { const v = a.filter((x) => x != null); return v.length ? v.reduce((p, q) => p + q, 0) / v.length : null; };
+  // the ready-position frame that most needs fixing, for the pose comparison
+  let readyWorst = -1, worst = -1;
+  for (const i of readyIdx) {
+    const sc = Math.max(0, (knee[i] ?? 150) - 150) / 20 + Math.max(0, 0.25 - (wristH[i] ?? 0.25)) * 3;
+    if (sc > worst) { worst = sc; readyWorst = i; }
+  }
 
   return {
     hand, view, duration: n ? frames[n - 1].t : 0,
     coverage: ok.filter(Boolean).length / (n || 1),
-    frames, series: { knee, speed: sp, thr },
+    frames, series: { knee, speed: sp, thr, wristH }, readyWorst,
     strokes,
     summary: {
       strokes: strokes.length,
@@ -415,6 +457,345 @@ function computeMetrics(frames, { hand, view, aspect }) {
       kinds: strokes.reduce((m, s) => (m[s.kind] = (m[s.kind] || 0) + 1, m), {}),
     },
   };
+}
+// ---- court detection: find the white court lines and fit a pickleball/badminton court to them ----
+// Court coordinates are feet: x 0..20 across, y = distance from the net (negative = far side).
+const COURT_TEMPLATES = {
+  pickleball: {
+    cross: [-22, -7, 7, 22], sides: [0, 10, 20],
+    lines: [[0, -22, 0, 22], [20, -22, 20, 22], [0, -22, 20, -22], [0, 22, 20, 22], [0, -7, 20, -7], [0, 7, 20, 7], [10, -22, 10, -7], [10, 7, 10, 22]],
+  },
+  badminton: {   // same 20 x 44 ft footprint; many indoor pickleball games use these lines
+    cross: [-22, -19.5, -6.5, 6.5, 19.5, 22], sides: [0, 1.5, 10, 18.5, 20],
+    lines: [[0, -22, 0, 22], [20, -22, 20, 22], [1.5, -22, 1.5, 22], [18.5, -22, 18.5, 22], [0, -22, 20, -22], [0, 22, 20, 22],
+      [0, -19.5, 20, -19.5], [0, 19.5, 20, 19.5], [0, -6.5, 20, -6.5], [0, 6.5, 20, 6.5], [10, -22, 10, -6.5], [10, 6.5, 10, 22]],
+  },
+};
+const KITCHEN = { pickleball: 7, badminton: 6.5 };
+
+function homography(s, d) {
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = s[i], [u, v] = d[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+  }
+  const n = 8, M = A.map((r, i) => [...r, b[i]]);
+  for (let i = 0; i < n; i++) {
+    let p = i; for (let r = i + 1; r < n; r++) if (Math.abs(M[r][i]) > Math.abs(M[p][i])) p = r;
+    [M[i], M[p]] = [M[p], M[i]];
+    if (Math.abs(M[i][i]) < 1e-12) return null;
+    for (let r = 0; r < n; r++) if (r !== i) { const f = M[r][i] / M[i][i]; for (let c = i; c <= n; c++) M[r][c] -= f * M[i][c]; }
+  }
+  return [...M.map((r, i) => r[n] / r[i]), 1];
+}
+function hApply(h, x, y) { const w = h[6] * x + h[7] * y + h[8]; return [(h[0] * x + h[1] * y + h[2]) / w, (h[3] * x + h[4] * y + h[5]) / w, w]; }
+function hInvert(m) {
+  const [a, b, c, d, e, f, g, h, i] = m, A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
+  const det = a * A + b * B + c * C; if (Math.abs(det) < 1e-12) return null;
+  return [A / det, -(b * i - c * h) / det, (b * f - c * e) / det, B / det, (a * i - c * g) / det, -(a * f - c * d) / det, C / det, -(a * h - b * g) / det, (a * e - b * d) / det];
+}
+
+// Bright, unsaturated pixels that stand out from their surroundings and sit on the court floor.
+// feet (pixels, optional) tells us where the floor is, so walls, posters and banners are ignored.
+function courtMask(rgba, w, h, feet) {
+  const N = w * h, lum = new Float32Array(N), sat = new Float32Array(N);
+  for (let i = 0, p = 0; i < N; i++, p += 4) {
+    const r = rgba[p], g = rgba[p + 1], b = rgba[p + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    lum[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+    sat[i] = (mx - mn) / (mx || 1);
+  }
+  // floor colour: the most common colour in the lower middle of the frame (lines are only a small share of it)
+  const hist = new Map();
+  for (let y = Math.floor(h * 0.4); y < Math.floor(h * 0.85); y += 2) for (let x = Math.floor(w * 0.1); x < w * 0.9; x += 2) {
+    const i = y * w + x, k = (rgba[i * 4] >> 5) << 6 | (rgba[i * 4 + 1] >> 5) << 3 | rgba[i * 4 + 2] >> 5;
+    hist.set(k, (hist.get(k) || 0) + 1);
+  }
+  let mode = 0, mc = -1; for (const [k, c] of hist) if (c > mc) { mc = c; mode = k; }
+  const F = [((mode >> 6) & 7) * 32 + 16, ((mode >> 3) & 7) * 32 + 16, (mode & 7) * 32 + 16];
+  const floorLum = 0.299 * F[0] + 0.587 * F[1] + 0.114 * F[2];
+  const ok = new Uint8Array(N);
+  for (let i = 0; i < N; i++) ok[i] = lum[i] > floorLum + 30 && sat[i] < 0.4 ? 1 : 0;
+  // floor region: per row, the span between the outermost floor-coloured pixels, kept only for rows that are mostly floor
+  const Fs = F[0] + F[1] + F[2] + 1, Fc = [F[0] / Fs, F[1] / Fs];
+  const inFloor = new Uint8Array(N);
+  for (let y = Math.floor(h * 0.2); y < h; y++) {
+    let x0 = -1, x1 = -1, n = 0;
+    for (let x = 0; x < w; x++) {
+      const p = (y * w + x) * 4;
+      const r = rgba[p], g = rgba[p + 1], b = rgba[p + 2], sum = r + g + b + 1, L = lum[y * w + x];
+      // same hue as the floor, ignoring how brightly it is lit
+      if (Math.abs(r / sum - Fc[0]) + Math.abs(g / sum - Fc[1]) < 0.08 && L > floorLum * 0.45 && L < floorLum * 1.7) { n++; if (x0 < 0) x0 = x; x1 = x; }
+    }
+    if (n < w * 0.25) continue;
+    for (let x = x0; x <= x1; x++) inFloor[y * w + x] = 1;
+  }
+  const IL = new Float64Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++) { let s = 0; for (let x = 0; x < w; x++) { s += lum[y * w + x]; IL[(y + 1) * (w + 1) + x + 1] = IL[y * (w + 1) + x + 1] + s; } }
+  const box = (I, x0, y0, x1, y1) => I[y1 * (w + 1) + x1] - I[y0 * (w + 1) + x1] - I[y1 * (w + 1) + x0] + I[y0 * (w + 1) + x0];
+  const R = Math.max(3, Math.round(w / 70)), mask = new Uint8Array(N);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; if (!ok[i] || !inFloor[i]) continue;
+    const x0 = Math.max(0, x - R), x1 = Math.min(w, x + R + 1), y0 = Math.max(0, y - R), y1 = Math.min(h, y + R + 1), n = (x1 - x0) * (y1 - y0);
+    if (lum[i] - box(IL, x0, y0, x1, y1) / n > 16) mask[i] = 1;
+  }
+  // local line direction from the structure tensor of the luminance gradient; only clearly line-like pixels keep a vote
+  const gx = new Float32Array(N), gy = new Float32Array(N);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x;
+    gx[i] = lum[i - w + 1] + 2 * lum[i + 1] + lum[i + w + 1] - lum[i - w - 1] - 2 * lum[i - 1] - lum[i + w - 1];
+    gy[i] = lum[i + w - 1] + 2 * lum[i + w] + lum[i + w + 1] - lum[i - w - 1] - 2 * lum[i - w] - lum[i - w + 1];
+  }
+  const theta = new Float32Array(N).fill(-1), r = 2;
+  for (let y = r; y < h - r; y++) for (let x = r; x < w - r; x++) {
+    const i = y * w + x; if (!mask[i]) continue;
+    let xx = 0, yy = 0, xy = 0;
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const j = i + dy * w + dx; xx += gx[j] * gx[j]; yy += gy[j] * gy[j]; xy += gx[j] * gy[j]; }
+    const tr = xx + yy; if (tr < 1) { mask[i] = 0; continue; }
+    const coh = Math.hypot(xx - yy, 2 * xy) / tr;
+    if (coh < 0.35) { mask[i] = 0; continue; }
+    let t = 0.5 * Math.atan2(2 * xy, xx - yy); if (t < 0) t += Math.PI;   // gradient direction = line normal
+    theta[i] = t;
+  }
+  mask.theta = theta;
+  return mask;
+}
+function dilate(mask, w, h, r) {
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (!mask[y * w + x]) continue;
+    for (let dy = -r; dy <= r; dy++) { const yy = y + dy; if (yy < 0 || yy >= h) continue; for (let dx = -r; dx <= r; dx++) { const xx = x + dx; if (xx >= 0 && xx < w) out[yy * w + xx] = 1; } }
+  }
+  return out;
+}
+function houghLines(mask, w, h, max = 24) {
+  const NT = 180, diag = Math.ceil(Math.hypot(w, h)), NR = diag * 2 + 1, acc = new Uint32Array(NT * NR);
+  const cs = [], sn = []; for (let t = 0; t < NT; t++) { cs.push(Math.cos(t * Math.PI / NT)); sn.push(Math.sin(t * Math.PI / NT)); }
+  // each pixel votes only near its own line direction, so lines crossing several court lines do not pile up votes
+  const th = mask.theta, span = 6;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; if (!mask[i]) continue;
+    const t0 = th ? Math.round(th[i] / Math.PI * NT) : null;
+    for (let k = th ? -span : 0; k <= (th ? span : NT - 1); k++) {
+      let t = th ? t0 + k : k, flip = 1;
+      if (t < 0) { t += NT; flip = -1; } else if (t >= NT) { t -= NT; flip = -1; }
+      acc[t * NR + Math.round(flip * (x * cs[t] + y * sn[t])) + diag]++;
+    }
+  }
+  const minVotes = Math.max(20, w * 0.08), peaks = [];
+  for (let t = 0; t < NT; t++) for (let r = 0; r < NR; r++) {
+    const v = acc[t * NR + r]; if (v < minVotes) continue;
+    let best = true;
+    for (let dt = -3; dt <= 3 && best; dt++) for (let dr = -5; dr <= 5; dr++) {
+      const tt = t + dt, rr = r + dr;
+      if (tt < 0 || tt >= NT || rr < 0 || rr >= NR || (dt === 0 && dr === 0)) continue;
+      if (acc[tt * NR + rr] > v) { best = false; break; }
+    }
+    if (best) peaks.push({ t: t * Math.PI / NT, rho: r - diag, votes: v });
+  }
+  peaks.sort((a, b) => b.votes - a.votes);
+  const out = [];
+  for (const p of peaks) {
+    if (out.some((q) => Math.abs(q.t - p.t) < 0.05 && Math.abs(q.rho - p.rho) < 6)) continue;
+    out.push(p); if (out.length >= max) break;
+  }
+  return out.map((p) => ({ ...p, l: [Math.cos(p.t), Math.sin(p.t), -p.rho] }));
+}
+function quadArea(p) { let a = 0; for (let i = 0; i < 4; i++) { const [x0, y0] = p[i], [x1, y1] = p[(i + 1) % 4]; a += x0 * y1 - x1 * y0; } return Math.abs(a) / 2; }
+// Lines running down the court meet at one vanishing point. Find it, then look for lines as rays out of it.
+function alongRays(mask, w, h, along) {
+  if (along.length < 2) return [];
+  let vp = null, bestW = 0;
+  for (let i = 0; i < along.length; i++) for (let j = i + 1; j < along.length; j++) {
+    const p = meet(along[i].l, along[j].l); if (!p || p[1] > h * 0.75 || p[1] < -h * 2) continue;
+    let wsum = 0;
+    for (const L of along) if (Math.abs(L.l[0] * p[0] + L.l[1] * p[1] + L.l[2]) < w * 0.012) wsum += L.votes;
+    if (wsum > bestW) { bestW = wsum; vp = p; }
+  }
+  if (!vp) return [];
+  const th = mask.theta, NB = 720, acc = new Float32Array(NB);   // quarter-degree bins of the ray angle
+  for (let y = Math.ceil(Math.max(0, vp[1] + 4)); y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; if (!mask[i]) continue;
+    const phi = Math.atan2(y - vp[1], x - vp[0]);                 // 0..pi below the vanishing point
+    if (th && th[i] >= 0) {                                         // the pixel's own line must point at the vanishing point
+      let d = Math.abs(((th[i] + Math.PI / 2) % Math.PI) - phi % Math.PI); d = Math.min(d, Math.PI - d);
+      if (d > 0.14) continue;
+    }
+    const bin = Math.floor(phi / Math.PI * NB); if (bin >= 0 && bin < NB) acc[bin] += 1;
+  }
+  const sm = acc.map((_, b) => (acc[b - 1] || 0) * 0.5 + acc[b] + (acc[b + 1] || 0) * 0.5);
+  const peaks = [];
+  for (let b = 0; b < NB; b++) {
+    if (sm[b] < Math.max(15, h * 0.06)) continue;
+    let isMax = true; for (let k = -6; k <= 6; k++) if (k && sm[b + k] > sm[b]) { isMax = false; break; }
+    if (isMax) peaks.push({ b, v: sm[b] });
+  }
+  return peaks.sort((a, b) => b.v - a.v).slice(0, 9).map(({ b, v }) => {
+    const phi = (b + 0.5) / NB * Math.PI, d = [Math.cos(phi), Math.sin(phi)], n = [-d[1], d[0]];
+    return { votes: v, l: [n[0], n[1], -(n[0] * vp[0] + n[1] * vp[1])] };
+  });
+}
+const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+function meet(a, b) { const p = cross3(a, b); return Math.abs(p[2]) < 1e-9 ? null : [p[0] / p[2], p[1] / p[2]]; }
+
+// Try pairs of across-court lines x pairs of along-court lines against each template; keep the best-supported court.
+function fitCourt(mask, w, h, lines, feet) {
+  const dm = dilate(mask, w, h, Math.max(1, Math.round(w / 300)));
+  const across = [], along = [];
+  for (const L of lines) {
+    const dirAngle = Math.abs(Math.atan2(-L.l[0], L.l[1]));          // direction of the line, 0 = horizontal
+    const a = Math.min(dirAngle, Math.PI - dirAngle);
+    (a < 0.3 ? across : along).push(L);
+  }
+  const atX = (L, x) => -(L.l[0] * x + L.l[2]) / L.l[1];             // y of an across line at column x
+  const atY = (L, y) => -(L.l[1] * y + L.l[2]) / L.l[0];             // x of an along line at row y
+  // strongest candidates of each kind, then ordered far-to-near and left-to-right
+  const A = across.sort((a, b) => b.votes - a.votes).slice(0, 8).sort((a, b) => atX(a, w / 2) - atX(b, w / 2));
+  const rays = alongRays(mask, w, h, along);
+  const B = (rays.length >= 2 ? rays : along.sort((a, b) => b.votes - a.votes).slice(0, 8)).sort((a, b) => atY(a, h) - atY(b, h));
+  let best = null;
+  // score only the camera's half of the court: the far half is small and cluttered by the net and players
+  const samples = (tpl) => tpl.lines.filter((l) => l[1] >= 0 || l[3] >= 0).map(([x0, y0, x1, y1]) => [x0, Math.max(0, y0), x1, Math.max(0, y1)]).flatMap(([x0, y0, x1, y1]) => {
+    const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0)); const pts = [];
+    for (let k = 0; k <= n; k++) pts.push([x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n]);
+    return pts;
+  });
+  for (const [name, tpl] of Object.entries(COURT_TEMPLATES)) {
+    const S = samples(tpl), crossNear = tpl.cross.filter((y) => y > 0);
+    for (let i = 0; i < A.length; i++) for (let j = i + 1; j < A.length; j++)
+      for (let k = 0; k < B.length; k++) for (let m = k + 1; m < B.length; m++) {
+        const p = [meet(A[i].l, B[k].l), meet(A[i].l, B[m].l), meet(A[j].l, B[m].l), meet(A[j].l, B[k].l)];
+        if (p.some((q) => !q)) continue;
+        if (p[0][0] >= p[1][0] || p[3][0] >= p[2][0]) continue;       // left must stay left
+        if (quadArea(p) < w * h * 0.01) continue;                        // a real court spans a good part of the frame
+        for (let ya = 0; ya < crossNear.length; ya++) for (let yb = ya + 1; yb < crossNear.length; yb++)
+          for (let xa = 0; xa < tpl.sides.length; xa++) for (let xb = xa + 1; xb < tpl.sides.length; xb++) {
+            const Y0 = crossNear[ya], Y1 = crossNear[yb], X0 = tpl.sides[xa], X1 = tpl.sides[xb];
+            const H = homography([[X0, Y0], [X1, Y0], [X1, Y1], [X0, Y1]], p);
+            if (!H) continue;
+            if (feet) {   // the player has to be standing on this court
+              const Hi = hInvert(H); if (!Hi) continue;
+              const f = hApply(Hi, feet[0], feet[1]);
+              if (!(f[0] > -0.5 && f[0] < 20.5 && f[1] > -1 && f[1] < 24)) continue;
+            }
+            // count distinct supporting pixels, so a court squashed onto one line cannot score
+            let hit = 0, miss = 0; const seen = new Set();
+            for (const [x, y] of S) {
+              const q = hApply(H, x, y); if (q[2] <= 0) { miss++; continue; }
+              const px = Math.round(q[0]), py = Math.round(q[1]);
+              if (px < 0 || py < h * 0.3 || px >= w || py >= h) continue;
+              const key = py * w + px; if (seen.has(key)) continue; seen.add(key);
+              dm[key] ? hit++ : miss++;
+            }
+            const score = hit - 0.6 * miss;
+            if (!best || score > best.score) best = { score, hit, miss, H, template: name };
+          }
+      }
+  }
+  return best;
+}
+// rgba: an ImageData-like buffer of the frame scaled to w x h; feet: [x, y] normalized (or null).
+// Returns homographies between normalized image coords and court feet, or null when no court is found.
+function detectCourt(rgba, w, h, feet) {
+  const fp = feet ? [feet[0] * w, feet[1] * h] : null;
+  const mask = courtMask(rgba, w, h, fp);
+  const lines = houghLines(mask, w, h);
+  const fit = fitCourt(mask, w, h, lines, fp);
+  if (!fit || fit.hit < 40 || fit.hit < 1.5 * fit.miss) return null;
+  const S = [[1 / w, 0, 0], [0, 1 / h, 0], [0, 0, 1]];   // pixels -> normalized
+  const m2i = mul3(S, fit.H), i2m = hInvert(m2i);
+  return { m2i, i2m, template: fit.template, score: fit.score, hit: fit.hit, miss: fit.miss };
+}
+function mul3(A, h) { // A (3x3 rows) * h (flat 9)
+  const B = [[h[0], h[1], h[2]], [h[3], h[4], h[5]], [h[6], h[7], h[8]]], out = [];
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) out.push(A[r][0] * B[0][c] + A[r][1] * B[1][c] + A[r][2] * B[2][c]);
+  return out;
+}
+
+// ---- suggested pose: the player's own skeleton, with the hips lowered until the knees reach the target angle
+// and (for the ready position) the paddle hand raised to chest height. Works in image space.
+function suggestPose(lm, aspect, { kneeTarget = null, wristUp = false, hand = 16, view = "back" }) {
+  const P = lm.map((p) => [p[0] * aspect, p[1]]);
+  const d2 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const out = P.map((p) => p.slice());
+  if (kneeTarget) {
+    let drop = 0;
+    for (const [hp, k, a] of [[23, 25, 27], [24, 26, 28]]) {
+      const l1 = d2(P[hp], P[k]), l2 = d2(P[k], P[a]);
+      const want = Math.sqrt(l1 * l1 + l2 * l2 - 2 * l1 * l2 * Math.cos(kneeTarget * Math.PI / 180));
+      drop += Math.max(0, d2(P[hp], P[a]) - want) / 2;
+    }
+    for (let i = 0; i <= 24; i++) out[i][1] += drop;          // everything above the knees moves down together
+    for (const [hp, k, a] of [[23, 25, 27], [24, 26, 28]]) {
+      const l1 = d2(P[hp], P[k]), l2 = d2(P[k], P[a]);
+      if (view.startsWith("side")) {
+        // seen from the side the knee bends toward the net
+        const dir = view === "side-left" ? -1 : 1;
+        out[k] = twoLink(out[hp], P[a], l1, l2, [(out[hp][0] + P[a][0]) / 2 + dir * l1, (out[hp][1] + P[a][1]) / 2]);
+      } else {
+        // seen from behind or in front the bend points at the camera, so the leg just looks shorter
+        const f = l1 / (l1 + l2);
+        out[k] = [out[hp][0] + (P[a][0] - out[hp][0]) * f, out[hp][1] + (P[a][1] - out[hp][1]) * f];
+      }
+    }
+  }
+  if (wristUp) {
+    const sh = hand === 16 ? 12 : 11, el = hand === 16 ? 14 : 13;
+    const S = out[sh], hipY = (out[23][1] + out[24][1]) / 2, shY = (out[11][1] + out[12][1]) / 2, torso = hipY - shY;
+    const midX = (out[11][0] + out[12][0]) / 2;
+    const l1 = d2(P[sh], P[el]), l2 = d2(P[el], P[hand]);
+    let T = [midX + (S[0] - midX) * 0.9, shY + torso * 0.45];       // chest height, on the paddle side
+    const d = d2(S, T); if (d > l1 + l2 - 1e-4) T = [S[0] + (T[0] - S[0]) * (l1 + l2 - 1e-4) / d, S[1] + (T[1] - S[1]) * (l1 + l2 - 1e-4) / d];
+    const E = twoLink(S, T, l1, l2, [S[0] + (S[0] - midX) * 0.8, S[1] + torso * 0.5]);
+    const dW = [T[0] - out[hand][0], T[1] - out[hand][1]];
+    out[el] = E;
+    for (const i of hand === 16 ? [16, 18, 20, 22] : [15, 17, 19, 21]) out[i] = [out[i][0] + dW[0], out[i][1] + dW[1]];
+  }
+  return out.map((p, i) => [p[0] / aspect, p[1], 0, lm[i][3]]);
+}
+// joint position of a two-segment limb from A to B, bending toward hint
+function twoLink(A, B, l1, l2, hint) {
+  const dx = B[0] - A[0], dy = B[1] - A[1], d = Math.max(1e-6, Math.min(Math.hypot(dx, dy), l1 + l2 - 1e-6));
+  const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+  const ux = dx / d, uy = dy / d, mx = A[0] + ux * a, my = A[1] + uy * a;
+  const c1 = [mx - uy * h, my + ux * h], c2 = [mx + uy * h, my - ux * h];
+  return Math.hypot(c1[0] - hint[0], c1[1] - hint[1]) < Math.hypot(c2[0] - hint[0], c2[1] - hint[1]) ? c1 : c2;
+}
+
+// ---- where the player stood: feet mapped onto the court, per frame
+function courtAt(keys, t) {
+  let best = null;
+  for (const k of keys) { if (k.t <= t + 0.01) best = k; else { if (!best) best = k; break; } }
+  return best;
+}
+const feetOf = (lm) => [(lm[29][0] + lm[30][0]) / 2, Math.max(lm[29][1], lm[30][1])];
+function positionMetrics(frames, keys) {
+  if (!keys || !keys.length) return null;
+  let pts = [];
+  for (const f of frames) {
+    if (!f.lm) continue;
+    const k = courtAt(keys, f.t); if (!k) continue;
+    const [fx, fy] = feetOf(f.lm), q = hApply(k.i2m, fx, fy);
+    if (!isFinite(q[0]) || !isFinite(q[1]) || q[0] < -6 || q[0] > 26 || Math.abs(q[1]) > 30) continue;
+    pts.push({ t: f.t, x: q[0], y: Math.abs(q[1]), kitchen: KITCHEN[k.template] });
+  }
+  if (pts.length < 5) return null;
+  // 5-sample median to remove single-frame jumps
+  const med = (a) => a.slice().sort((p, q) => p - q)[a.length >> 1];
+  pts = pts.map((p, i) => {
+    const win = pts.slice(Math.max(0, i - 2), i + 3);
+    return { ...p, x: med(win.map((q) => q.x)), y: med(win.map((q) => q.y)) };
+  });
+  const kit = pts[0].kitchen, n = pts.length;
+  const share = (fn) => pts.filter(fn).length / n;
+  const zones = {
+    inside: share((p) => p.y < kit),
+    line: share((p) => p.y >= kit && p.y < kit + 3),
+    transition: share((p) => p.y >= kit + 3 && p.y < 17),
+    baseline: share((p) => p.y >= 17),
+  };
+  const back = pts.find((p) => p.y >= 17), reach = back && pts.find((p) => p.t > back.t && p.y < kit + 3);
+  return { pts, kitchen: kit, zones, reachSec: reach ? reach.t - back.t : null };
 }
 // PURE-END
 
@@ -459,6 +840,14 @@ function detect(focus = null) {
   const back = (q) => ({ x: (sx + (q.x * CANVAS - dx) / k) / vw, y: (sy + (q.y * CANVAS - dy) / k) / vh, z: q.z, visibility: q.visibility });
   return r.landmarks.map((p, i) => ({ lm: pack(p.map(back), 4), w: pack(r.worldLandmarks[i], 3) }));
 }
+// court detection runs on a 640px-wide copy of the current frame
+const cc = document.createElement("canvas"), cctx = cc.getContext("2d", { willReadFrequently: true });
+function detectCourtNow(feet) {
+  cc.width = 640; cc.height = Math.round(640 / aspectOf());
+  cctx.drawImage(video, 0, 0, cc.width, cc.height);
+  try { return detectCourt(cctx.getImageData(0, 0, cc.width, cc.height).data, cc.width, cc.height, feet); }
+  catch (e) { console.warn("court detection failed", e); return null; }
+}
 function sizeOverlay() {
   const r = overlay.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
   overlay.width = Math.round(r.width * dpr); overlay.height = Math.round(r.height * dpr);
@@ -499,15 +888,31 @@ function frameIndexAt(t) {
   const best = lo > 0 && Math.abs(f[lo - 1].t - t) < Math.abs(f[lo].t - t) ? lo - 1 : lo;
   return Math.abs(f[best].t - t) < 0.12 ? best : -1;
 }
+function drawCourtLines(ctx, key, w, h, lw) {
+  if (!key) return;
+  ctx.save(); ctx.strokeStyle = css("--cyan"); ctx.globalAlpha = 0.55; ctx.lineWidth = lw * 0.7; ctx.setLineDash([lw * 3, lw * 2]);
+  for (const [x0, y0, x1, y1] of COURT_TEMPLATES[key.template].lines) {
+    const n = 12; let pen = false; ctx.beginPath();
+    for (let k = 0; k <= n; k++) {
+      const q = hApply(key.m2i, x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n);
+      if (q[2] <= 0) { pen = false; continue; }
+      pen ? ctx.lineTo(q[0] * w, q[1] * h) : ctx.moveTo(q[0] * w, q[1] * h); pen = true;
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
 function renderOverlay() {
   const w = overlay.width, h = overlay.height; octx.clearRect(0, 0, w, h);
   const lw = Math.max(2, w / 260);
+  if (result && !analyzing && result.courtKeys?.length) drawCourtLines(octx, courtAt(result.courtKeys, video.currentTime), w, h, lw);
+  else if (!result && previewCourt) drawCourtLines(octx, previewCourt, w, h, lw);
   if (result && !analyzing) {
     const fi = frameIndexAt(video.currentTime);
     if (fi >= 0) {
       if (video.paused) for (const p of result.raw[fi].poses) if (p.lm !== result.frames[fi].lm) drawPose(octx, p.lm, w, h, { color: "#7d8f97", alpha: 0.55, width: lw * 0.8 });
       const fr = result.frames[fi];
-      if (fr.lm) drawPose(octx, fr.lm, w, h, { color: css("--cyan"), arm: armIdx(result.hand), width: lw });
+      if (fr.lm) drawPose(octx, fr.lm, w, h, { color: css("--blue"), width: lw });
     }
     const s = result.strokes.find((s) => Math.abs(s.t - video.currentTime) < 0.1);
     if (s) {
@@ -515,7 +920,7 @@ function renderOverlay() {
       octx.fillText(`HIT #${s.i}・${s.kind}`, lw * 8, h - lw * 8);
     }
   } else if (candidates.length) {
-    candidates.forEach((lm, i) => drawPose(octx, lm, w, h, { color: i === pickedIdx ? css("--cyan") : "#7d8f97", alpha: i === pickedIdx ? 1 : 0.6, width: lw }));
+    candidates.forEach((lm, i) => drawPose(octx, lm, w, h, { color: i === pickedIdx ? css("--blue") : "#7d8f97", alpha: i === pickedIdx ? 1 : 0.6, width: lw }));
   }
   $("time").textContent = fmtT(video.currentTime || 0);
 }
@@ -539,9 +944,11 @@ async function previewPeople() {
   await waitFrame();
   candidates = detect().map((p) => p.lm);
   pickedIdx = largestPose(candidates.map((lm) => ({ lm })));
+  previewCourt = detectCourtNow(pickedIdx >= 0 ? feetOf(candidates[pickedIdx]) : null);
+  const courtMsg = previewCourt ? "已辨識球場（青色虛線）。" : "沒找到球場白線，站位分析會略過。";
   showHint(candidates.length > 1
-    ? `畫面中有 ${candidates.length} 人，預設分析最大（最近）的那位。要換人就點他，再按「開始分析」。`
-    : candidates.length === 1 ? "已找到球員，按「開始分析」。" : "這一格沒找到人。可以先播放到球員完整入鏡的時間點，再按「開始分析」。");
+    ? `畫面中有 ${candidates.length} 人，預設分析最近的那位，要換人就點他。${courtMsg}`
+    : candidates.length === 1 ? `已找到球員。${courtMsg}` : "這一格沒找到人。可以先播放到球員完整入鏡的時間點，再按「分析」。");
   renderOverlay();
 }
 function showHint(msg) { ui.hint.textContent = msg; ui.hint.hidden = !msg; }
@@ -572,7 +979,7 @@ ui.file.addEventListener("change", async () => {
   if (videoURL) URL.revokeObjectURL(videoURL);
   $("cta").hidden = true; $("importBtn").classList.remove("pulse");
   videoURL = URL.createObjectURL(f);
-  result = null; candidates = []; pickedIdx = -1;
+  result = null; candidates = []; pickedIdx = -1; previewCourt = null;
   clearResults();
   $("source").innerHTML = `<em>SRC</em> <span></span>`; $("source").querySelector("span").textContent = f.name;
   video.src = videoURL; thumbVideo.src = videoURL;
@@ -594,7 +1001,8 @@ async function runAnalysis() {
   const step = 1 / +$("rate").value, aspect = aspectOf();
   const anchorT = video.currentTime, anchorLm = candidates[pickedIdx] || null;
   const raw = [];
-  let lastMedia = null, lastSig = null, focus = null, seenAt = -1;
+  let lastMedia = null, lastSig = null, focus = null, seenAt = -1, lastCourtT = -1;
+  const courtKeys = [];
   if (anchorLm) { focus = { c: hipCenter(anchorLm, 1), h: bodyH(anchorLm) }; seenAt = anchorT; }
   const t0 = performance.now();
   // sample slightly off the frame grid so float rounding never lands two samples on one frame
@@ -611,6 +1019,11 @@ async function runAnalysis() {
     if (pi >= 0 && (!focus || Math.hypot(...hipCenter(poses[pi].lm, 1).map((v, j) => v - focus.c[j])) < 0.25)) {
       focus = { c: hipCenter(poses[pi].lm, 1), h: Math.max(0.12, bodyH(poses[pi].lm)) }; seenAt = t;
     }
+    if (lastCourtT < 0 || t - lastCourtT >= 1) {
+      lastCourtT = t;
+      const c = detectCourtNow(pi >= 0 ? feetOf(poses[pi].lm) : null);
+      if (c) courtKeys.push({ t: +t.toFixed(3), m2i: c.m2i, i2m: c.i2m, template: c.template });
+    }
     const sig = poses.length ? poses[0].lm[0].join() : "";
     if (sig && sig === lastSig) continue;            // same frame decoded twice
     lastSig = sig;
@@ -621,7 +1034,7 @@ async function runAnalysis() {
       const el = (performance.now() - t0) / 1000;
       setStatus(`分析中 ${(p * 100).toFixed(0)}% · 剩約 ${Math.max(1, Math.round(el / p - el))} 秒`);
       octx.clearRect(0, 0, overlay.width, overlay.height);
-      for (const q of poses) drawPose(octx, q.lm, overlay.width, overlay.height, { color: css("--cyan"), width: Math.max(2, overlay.width / 260) });
+      for (const q of poses) drawPose(octx, q.lm, overlay.width, overlay.height, { color: css("--blue"), width: Math.max(2, overlay.width / 260) });
     }
   }
   ui.bar.style.width = "100%";
@@ -636,7 +1049,7 @@ async function runAnalysis() {
     }
   }
   analyzing = false; ui.run.disabled = false;
-  result = { raw, aspect, settings: { hand: $("hand").value, view: $("view").value } };
+  result = { raw, aspect, courtKeys, settings: { hand: $("hand").value, view: $("view").value } };
   await rebuild(anchor);
   setStatus(`完成 · ${raw.length} 張畫面 · ${((performance.now() - t0) / 1000).toFixed(0)} 秒 · 暫停時點別人可改分析他`);
   await seek(0);
@@ -646,9 +1059,15 @@ async function rebuild(anchor) {
   const { raw, aspect, settings } = result;
   const frames = trackPlayer(raw, anchor, aspect);
   Object.assign(result, computeMetrics(frames, { ...settings, aspect }), { anchor });
+  result.position = positionMetrics(result.frames, result.courtKeys);
+  poseSel = 0;
   renderAll(); renderOverlay();
-  await makeThumbs();
+  enqueue(drawPoseCompare);
+  await enqueue(makeThumbs);
 }
+// thumbVideo is shared by the stroke thumbnails and the pose comparison, so its seeks run one at a time
+let videoQueue = Promise.resolve();
+function enqueue(fn) { videoQueue = videoQueue.then(fn).catch((e) => console.warn(e)); return videoQueue; }
 async function makeThumbs() {
   const r = result;
   if (!thumbVideo.src) return;
@@ -671,11 +1090,137 @@ function cropThumb(el, lm, hand) {
   const c = document.createElement("canvas"); c.width = 256; c.height = 160;
   const ctx = c.getContext("2d"); ctx.drawImage(el, sx, sy, cw, ch, 0, 0, 256, 160);
   const local = lm.map((p) => [(p[0] * vw - sx) / cw, (p[1] * vh - sy) / ch, p[2], p[3]]);
-  drawPose(ctx, local, 256, 160, { color: css("--cyan"), arm: armIdx(hand), width: 2.5 });
+  drawPose(ctx, local, 256, 160, { color: css("--blue"), width: 2.5 });
   return c.toDataURL("image/jpeg", 0.75);
 }
 $("hand").addEventListener("change", () => { if (result && !analyzing) { result.settings.hand = $("hand").value; rebuild(result.anchor); } });
 $("view").addEventListener("change", () => { if (result && !analyzing) { result.settings.view = $("view").value; rebuild(result.anchor); } });
+
+// ---------- pose comparison ----------
+function poseMoments() {
+  const r = result, m = [];
+  if (r.readyWorst >= 0) m.push({ label: `準備姿勢 ${fmtT(r.frames[r.readyWorst].t)}`, fi: r.readyWorst, kind: "ready" });
+  for (const s of r.strokes) m.push({ label: `擊球 #${s.i} ${fmtT(s.t)}`, fi: s.fi, kind: "hit" });
+  return m;
+}
+function renderPoseTabs() {
+  const m = poseMoments(), box = $("poseTabs");
+  box.innerHTML = "";
+  m.forEach((x, i) => {
+    const b = document.createElement("button"); b.type = "button"; b.role = "tab"; b.textContent = x.label;
+    b.setAttribute("aria-selected", String(i === poseSel));
+    b.addEventListener("click", () => { poseSel = i; box.querySelectorAll("button").forEach((y, j) => y.setAttribute("aria-selected", String(j === i))); enqueue(drawPoseCompare); });
+    box.appendChild(b);
+  });
+  $("poseCanvas").hidden = !m.length;
+  if (!m.length) $("poseFix").innerHTML = `<li class="empty">沒有足夠的畫面可以比較姿勢。</li>`;
+}
+async function drawPoseCompare() {
+  const r = result; if (!r) return;
+  const m = poseMoments()[poseSel]; if (!m) return;
+  const f = r.frames[m.fi]; if (!f || !f.lm) return;
+  const knee = r.series.knee[m.fi], wh = r.series.wristH[m.fi];
+  const fixKnee = knee != null && knee > 155, fixWrist = m.kind === "ready" && wh != null && wh < 0.25;
+  const hand = r.hand === "left" ? 15 : 16;
+  const sug = fixKnee || fixWrist ? suggestPose(f.lm, r.aspect, { kneeTarget: fixKnee ? 140 : null, wristUp: fixWrist, hand, view: r.view }) : null;
+  if (thumbVideo.readyState < 2) await new Promise((res) => { thumbVideo.addEventListener("loadeddata", res, { once: true }); setTimeout(res, 5000); });
+  await seekEl(thumbVideo, f.t);
+  if (result !== r) return;
+  const c = $("poseCanvas"), ctx = c.getContext("2d"), W = thumbVideo.videoWidth, H = thumbVideo.videoHeight;
+  let x0 = 1, x1 = 0, y0 = 1, y1 = 0;
+  for (const q of sug ? [...f.lm, ...sug] : f.lm) { x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); }
+  const ch = Math.min(H, (y1 - y0) * H * 1.3), cw = Math.min(W, ch * c.width / c.height);
+  const sx = Math.max(0, Math.min(W - cw, (x0 + x1) / 2 * W - cw / 2)), sy = Math.max(0, Math.min(H - ch, (y0 + y1) / 2 * H - ch / 2));
+  ctx.drawImage(thumbVideo, sx, sy, cw, ch, 0, 0, c.width, c.height);
+  ctx.fillStyle = "rgba(5,7,9,.35)"; ctx.fillRect(0, 0, c.width, c.height);
+  const map = (q) => [(q[0] * W - sx) / cw * c.width, (q[1] * H - sy) / ch * c.height];
+  const skel = (lm, color, dash) => {
+    ctx.save(); ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 5; ctx.lineCap = "round"; ctx.shadowColor = color; ctx.shadowBlur = 10;
+    if (dash) ctx.setLineDash([14, 9]);
+    for (const [a, b] of BONES) { const p1 = map(lm[a]), p2 = map(lm[b]); ctx.beginPath(); ctx.moveTo(p1[0], p1[1]); ctx.lineTo(p2[0], p2[1]); ctx.stroke(); }
+    ctx.setLineDash([]);
+    for (const i of [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]) { const q = map(lm[i]); ctx.beginPath(); ctx.arc(q[0], q[1], 5.5, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+  };
+  if (sug) skel(sug, css("--red"), true);
+  skel(f.lm, css("--blue"), false);
+  const label = (txt, q, color, dx, dy) => {
+    const [x, y] = map(q); ctx.font = `600 24px ${css("--body")}`;
+    const w = ctx.measureText(txt).width + 20, bx = Math.max(4, Math.min(c.width - w - 4, x + dx)), by = Math.max(4, Math.min(c.height - 40, y + dy));
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(bx + (bx > x ? 0 : w), by + 18); ctx.stroke();
+    ctx.fillStyle = "rgba(5,7,9,.85)"; ctx.fillRect(bx, by, w, 36); ctx.strokeRect(bx, by, w, 36);
+    ctx.fillStyle = color; ctx.fillText(txt, bx + 10, by + 26);
+  };
+  const items = [];
+  if (fixKnee) {
+    label(`膝蓋 ${Math.round(knee)}° → 140°`, sug[26], css("--red"), 40, -10);
+    const cm = Math.round((sug[24][1] - f.lm[24][1]) / Math.max(1e-3, Math.max(f.lm[27][1], f.lm[28][1]) - f.lm[0][1]) * 155);
+    items.push(`<li><span class="k">膝蓋</span><span class="a">${Math.round(knee)}°</span>→<span class="s">140°</span><span>重心再放低約 ${cm} 公分，用腿蹲低，不要只彎腰</span></li>`);
+  }
+  if (fixWrist) {
+    label("拍子舉到胸前", sug[hand], css("--red"), 40, -70);
+    items.push(`<li><span class="k">持拍手</span><span class="a">腰部以下</span>→<span class="s">胸前</span><span>等球時拍頭朝上、拍面朝前</span></li>`);
+  }
+  if (!items.length) items.push(`<li>這個時間點的姿勢沒有明顯問題${knee != null ? `（膝蓋 ${Math.round(knee)}°）` : ""}。</li>`);
+  $("poseFix").innerHTML = items.join("");
+}
+
+// ---------- positioning ----------
+function renderPosition() {
+  const pos = result.position, c = $("courtCanvas");
+  if (!pos) {
+    c.hidden = true;
+    $("posNote").textContent = "從上方看的球場・你這一側";
+    $("zones").innerHTML = `<p class="empty">這段影片沒有辨識到球場白線，所以沒有站位分析。鏡頭要拍到球員所在那一側的場地線。</p>`;
+    return;
+  }
+  c.hidden = false;
+  $("posNote").textContent = `從上方看的球場・你這一側・廚房 ${pos.kitchen} 呎`;
+  const ctx = c.getContext("2d"), pad = 34, sc = (c.width - pad * 2) / 20, CH = 22, top = 34;
+  c.height = Math.round(top + (CH + 4) * sc);   // room behind the baseline too
+  const X = (x) => pad + x * sc, Y = (y) => top + y * sc;
+  ctx.fillStyle = css("--panel-2"); ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillStyle = "#0f2a2a"; ctx.fillRect(X(0), Y(0), 20 * sc, CH * sc);
+  ctx.fillStyle = "rgba(68,224,160,.10)"; ctx.fillRect(X(0), Y(0), 20 * sc, pos.kitchen * sc);
+  // heat: accumulate soft dots, then colour by density
+  const heat = document.createElement("canvas"); heat.width = c.width; heat.height = c.height;
+  const hx = heat.getContext("2d");
+  for (const o of pos.pts) {
+    const px = X(Math.max(-1, Math.min(21, o.x))), py = Y(Math.min(CH + 3.5, o.y));
+    const g = hx.createRadialGradient(px, py, 0, px, py, 2.4 * sc);
+    g.addColorStop(0, "rgba(0,0,0,.10)"); g.addColorStop(1, "rgba(0,0,0,0)");
+    hx.fillStyle = g; hx.fillRect(px - 2.4 * sc, py - 2.4 * sc, 4.8 * sc, 4.8 * sc);
+  }
+  const id = hx.getImageData(0, 0, c.width, c.height), px = id.data; let mx = 1;
+  for (let i = 3; i < px.length; i += 4) mx = Math.max(mx, px[i]);
+  const ramp = [[0, [59, 139, 255]], [0.45, [63, 212, 255]], [0.7, [243, 210, 60]], [1, [255, 77, 94]]];
+  for (let i = 0; i < px.length; i += 4) {
+    const v = px[i + 3] / mx; if (v < 0.04) { px[i + 3] = 0; continue; }
+    let k = 0; while (k < ramp.length - 2 && v > ramp[k + 1][0]) k++;
+    const [a, ca] = ramp[k], [b, cb] = ramp[k + 1], t = (v - a) / (b - a);
+    px[i] = ca[0] + (cb[0] - ca[0]) * t; px[i + 1] = ca[1] + (cb[1] - ca[1]) * t; px[i + 2] = ca[2] + (cb[2] - ca[2]) * t; px[i + 3] = Math.min(255, 60 + v * 190);
+  }
+  hx.putImageData(id, 0, 0); ctx.drawImage(heat, 0, 0);
+  // court lines
+  ctx.strokeStyle = "rgba(232,240,242,.85)"; ctx.lineWidth = 2;
+  ctx.strokeRect(X(0), Y(0), 20 * sc, CH * sc);
+  ctx.beginPath(); ctx.moveTo(X(0), Y(pos.kitchen)); ctx.lineTo(X(20), Y(pos.kitchen)); ctx.moveTo(X(10), Y(pos.kitchen)); ctx.lineTo(X(10), Y(CH)); ctx.stroke();
+  ctx.strokeStyle = css("--cyan"); ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(X(-0.6), Y(0)); ctx.lineTo(X(20.6), Y(0)); ctx.stroke();
+  ctx.font = `20px ${css("--mono")}`; ctx.fillStyle = css("--cyan"); ctx.fillText("NET 球網", X(0.2), Y(0) - 9);
+  ctx.font = `18px ${css("--body")}`; ctx.fillStyle = "rgba(68,224,160,.9)"; ctx.fillText("廚房（非截擊區）", X(0.4), Y(pos.kitchen / 2) + 6);
+  ctx.fillStyle = css("--muted"); ctx.textAlign = "right"; ctx.fillText("底線", X(19.6), Y(CH) - 10); ctx.textAlign = "left";
+  // movement trail, brighter toward the end
+  const s = pos.pts.filter((_, i) => i % 3 === 0), P = (o) => [X(Math.max(-1, Math.min(21, o.x))), Y(Math.min(CH + 3.5, o.y))];
+  for (let i = 1; i < s.length; i++) {
+    ctx.strokeStyle = `rgba(232,240,242,${0.15 + 0.6 * i / s.length})`; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(...P(s[i - 1])); ctx.lineTo(...P(s[i])); ctx.stroke();
+  }
+  const dot = (o, txt, col) => { const [x, y] = P(o); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.fill(); ctx.font = `600 18px ${css("--body")}`; ctx.fillText(txt, Math.min(x + 12, c.width - 110), y + 6); };
+  if (s.length) { dot(s[0], `起點 ${fmtT(s[0].t)}`, css("--ink")); dot(s[s.length - 1], `終點 ${fmtT(s[s.length - 1].t)}`, css("--ball")); }
+  const z = pos.zones;
+  $("zones").innerHTML = [["廚房內", z.inside, "--bad"], ["廚房線前", z.line, "--good"], ["過渡區", z.transition, "--warn"], ["底線區", z.baseline, "--blue"]]
+    .map(([n, v, col]) => `<div class="zone"><span>${n}</span><span class="zb"><i style="width:${(v * 100).toFixed(0)}%;background:var(${col})"></i></span><span class="p">${(v * 100).toFixed(0)}%</span></div>`).join("");
+}
 
 // ---------- results UI ----------
 function renderEmpty() {
@@ -684,6 +1229,10 @@ function renderEmpty() {
   $("tips").innerHTML = `<li class="empty">匯入影片並按「分析」後，這裡會列出改進建議。</li>`;
   $("strokes").innerHTML = `<p class="empty">分析後會列出每一拍的截圖。</p>`;
   $("chart").hidden = true;
+  $("poseTabs").innerHTML = ""; $("poseCanvas").hidden = true;
+  $("poseFix").innerHTML = `<li class="empty">分析後會挑出問題最明顯的時間點，把你的骨架（藍）和建議姿勢（紅）疊在一起比較。</li>`;
+  $("courtCanvas").hidden = true;
+  $("zones").innerHTML = `<p class="empty">分析後會畫出你在球場上的位置熱圖。畫面中要看得到球場白線。</p>`;
 }
 function clearResults() {
   renderEmpty();
@@ -708,7 +1257,7 @@ function renderAll() {
   tips.sort((a, b) => rank[a.level] - rank[b.level]);
   $("tips").innerHTML = tips.map((t) => `<li class="tip"><span class="chip ${t.level}">${t.label}</span><b>${t.title}</b><p>${t.body}</p></li>`).join("");
   $("chart").hidden = false;
-  renderStrokes(); drawChart();
+  renderStrokes(); drawChart(); renderPoseTabs(); renderPosition();
 }
 function makeTips(r) {
   const S = r.summary, tips = [];
@@ -741,6 +1290,14 @@ function makeTips(r) {
     tips.push({ level: "warn", label: "注意", title: `慣用手只有 ${pctTxt(S.wristSeen)}% 的時間看得清楚`, body: r.view === "back"
       ? "從球員正後方拍時，持拍手常被身體擋住，擊球次數和擊球高度會不準。想看揮拍動作，建議從側面拍。"
       : "手常被擋住或出鏡，擊球相關的數字會不準。調整鏡頭位置，讓持拍手一直在畫面內。" });
+  if (r.position) {
+    const z = r.position.zones, pc = (v) => Math.round(v * 100);
+    if (z.inside > 0.15) tips.push({ level: "warn", label: "可加強", title: `常站進廚房裡（${pc(z.inside)}% 的時間）`, body: "在廚房裡不能截擊，打完小球記得退回廚房線後方站定。" });
+    if (z.transition > 0.4) tips.push({ level: "warn", label: "可加強", title: `大部分時間停在過渡區（${pc(z.transition)}%）`, body: "過渡區最容易被打腳下球。第三拍之後持續往前，到廚房線後方再站定。" });
+    else if (z.baseline > 0.5) tips.push({ level: "warn", label: "可加強", title: `多數時間待在底線區（${pc(z.baseline)}%）`, body: "雙打主要在廚房線前得分。回完發球就往前移動，不要一直留在底線。" });
+    if (z.line >= 0.4) tips.push({ level: "good", label: "做得好", title: `常在廚房線前站定（${pc(z.line)}%）`, body: "站位很好，保持住。" });
+    if (r.position.reachSec != null) tips.push({ level: r.position.reachSec > 3 ? "warn" : "good", label: r.position.reachSec > 3 ? "可加強" : "做得好", title: `從底線上到廚房線前用了 ${r.position.reachSec.toFixed(1)} 秒`, body: r.position.reachSec > 3 ? "上網太慢容易被打到腳下。邊移動邊做分腿墊步，2 到 3 秒內上到廚房線。" : "上網速度不錯。" });
+  }
   if (r.coverage < 0.6)
     tips.push({ level: "warn", label: "注意", title: `只有 ${pctTxt(r.coverage)}% 的畫面有找到這位球員`, body: "球員常出鏡或被遮住，結果可能不準。鏡頭盡量拍到全身並固定不動。" });
   return tips;
@@ -824,7 +1381,7 @@ video.addEventListener("timeupdate", () => { if (result && !analyzing) drawChart
 // ---------- startup ----------
 renderEmpty();
 window.__exportResult = () => JSON.stringify({ raw: result.raw, aspect: result.aspect, settings: result.settings, anchor: result.anchor });
-window.__summary = () => ({ summary: result.summary, thr: result.series.thr, coverage: result.coverage, strokes: result.strokes.map(({ thumb, ...s }) => s) });
+window.__summary = () => ({ courtKeys: result.courtKeys?.length, position: result.position && { zones: result.position.zones, reachSec: result.position.reachSec, n: result.position.pts.length }, summary: result.summary, thr: result.series.thr, coverage: result.coverage, strokes: result.strokes.map(({ thumb, ...s }) => s) });
 initModel().then(() => {
   setStatus(videoURL ? `模型就緒 · 點選球員後按「分析」` : "模型就緒 · 按「匯入影片」開始");
   if (videoURL && video.readyState >= 2) { ui.run.disabled = false; previewPeople(); }
