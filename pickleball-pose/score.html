@@ -90,6 +90,13 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
 .big { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .big .btn { min-height: 56px; font-size: 15px; font-weight: 700; white-space: normal; text-align: center; line-height: 1.3; }
 .tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.manual { position: relative; display: grid; gap: 6px; padding: 16px 8px 8px; margin-top: 6px; border: 1.5px dashed var(--warn); border-radius: 10px; background: rgba(255, 181, 71, .05); }
+.manual > .tag { position: absolute; top: -9px; left: 10px; padding: 0 6px; background: var(--panel); color: var(--warn); font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+.manual .win-btn { background: rgba(255, 181, 71, .14); border-color: var(--warn); color: var(--ink); }
+.manual .undo { border-color: var(--warn); color: var(--warn); }
+.manual .swap { border-color: var(--cyan); color: var(--cyan); }
+.manual .reset { border-color: var(--bad); color: var(--bad); }
+.manual .btn:active { transform: translateY(1px); }
 
 .more { display: grid; gap: 8px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .more h2 { margin: 0; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; color: var(--muted); font-weight: 500; }
@@ -148,14 +155,17 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
       <div class="big"><button class="btn primary" id="pOk" type="button">確認</button><button class="btn" id="pFlip" type="button">改判</button></div>
     </div>
 
+    <div class="manual" role="group" aria-labelledby="manualTag">
+    <span class="tag" id="manualTag">✎ 手動修正</span>
     <div class="big">
-      <button class="btn" id="nearWin" type="button">近端隊贏這球</button>
-      <button class="btn" id="farWin" type="button">遠端隊贏這球</button>
+      <button class="btn win-btn" id="nearWin" type="button">近端隊贏這球</button>
+      <button class="btn win-btn" id="farWin" type="button">遠端隊贏這球</button>
     </div>
     <div class="tools">
-      <button class="btn" id="undoBtn" type="button">復原</button>
-      <button class="btn" id="swapBtn" type="button">交換場地</button>
-      <button class="btn" id="newBtn" type="button">新局</button>
+      <button class="btn undo" id="undoBtn" type="button">↶ 上一步</button>
+      <button class="btn swap" id="swapBtn" type="button">⇄ 交換場地</button>
+      <button class="btn reset" id="newBtn" type="button">新局</button>
+    </div>
     </div>
   </section>
 
@@ -180,7 +190,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
         <li>一球的開始與結束：看到球在動就開始，球消失約 2 秒就算結束。</li>
         <li>誰贏：看最後一次落地。落在某一邊界內沒被接回，那一邊輸；落在某一邊界外，是對面打出界，那一邊贏。</li>
         <li>計分用傳統雙打規則：只有發球方能得分，0-0-2 開局，1 號、2 號發球員輪完才換發。</li>
-        <li>自動判斷只供參考，判錯就按「改判」或「復原」。</li>
+        <li>自動判斷只供參考，判錯就按「改判」或手動修正區的「上一步」。</li>
       </ul>
     </details>
   </section>
