@@ -126,7 +126,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
 <div class="app">
   <header class="bar">
     <div class="brand"><b>PICKLE<i>/</i>SCORE</b><span>參考用</span></div>
-    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./">賽後分析</a><a class="score" href="score.html" aria-current="page">即時計分</a></nav>
+    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261016061622">賽後分析</a><a class="score" href="score.html?v=20261016061622" aria-current="page">即時計分</a></nav>
   </header>
 
   <section class="stage" aria-label="鏡頭">
@@ -204,8 +204,8 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
   </section>
 </div>
 
-<script src="court.js"></script>
-<script src="ball.js"></script>
+<script src="court.js?v=20261016061622"></script>
+<script src="ball.js?v=20261016061622"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const cam = $("cam"), overlay = $("overlay"), octx = overlay.getContext("2d");

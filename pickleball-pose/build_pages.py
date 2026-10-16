@@ -6,6 +6,7 @@ this wraps it into a standalone page that can be added to an iPhone home screen.
 Run ./fetch_assets.sh first so mp/ and models/ exist.
 """
 import json
+import time
 import shutil
 from pathlib import Path
 
@@ -91,7 +92,17 @@ def main():
     (OUT / "index.html").write_text(page, encoding="utf-8")
     (OUT / "manifest.webmanifest").write_text(json.dumps(MANIFEST, ensure_ascii=False, indent=2), encoding="utf-8")
     (OUT / ".nojekyll").write_text("")
-    for f in ("score.html", "ball.js", "court.js"):     # live scoring page and its scripts
+    # live scoring page and its scripts. Links between the pages and the script URLs carry a build stamp,
+    # so phones fetch the new version right away instead of a cached copy (Pages caches for 10 minutes).
+    stamp = time.strftime("%Y%m%d%H%M%S")
+    def stamped(html):
+        for a, b in (('href="score.html"', f'href="score.html?v={stamp}"'), ('href="./"', f'href="./?v={stamp}"'),
+                     ('src="court.js"', f'src="court.js?v={stamp}"'), ('src="ball.js"', f'src="ball.js?v={stamp}"')):
+            html = html.replace(a, b)
+        return html
+    (OUT / "index.html").write_text(stamped(page), encoding="utf-8")
+    (OUT / "score.html").write_text(stamped((HERE / "score.html").read_text(encoding="utf-8")), encoding="utf-8")
+    for f in ("ball.js", "court.js"):
         shutil.copy(HERE / f, OUT / f)
     for d in ("mp",):
         shutil.copytree(HERE / d, OUT / d, dirs_exist_ok=True)
