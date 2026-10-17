@@ -79,16 +79,23 @@ class BallTracker {
   }
 }
 
-// Follows rallies: starts when a ball track is clearly moving, ends when the ball has been gone for a while.
-// Bounces are the low points of the ball's path in the image whose ground position is plausible on the court.
-// Outcome rule: the last bounce decides. In on side X: X failed to return it, so the other side wins.
-// Out on side X's end: the other side hit it out, so X wins. A net ball drops on the hitter's side and counts as in there.
+// Follows rallies. Without a court: a rally starts when a ball track is clearly moving and ends when the ball has been gone a while;
+// the last bounce decides. With a court the judge goes by the rhythm of play:
+//  - a rally starts when the ball crosses the net, and is over when the ball has not come back across within a few seconds
+//    (players picking the ball up or walking with it no longer keep it going)
+//  - in a real rally the ball keeps crossing the net every second or two. A ball that crosses only once is a serve that was not
+//    returned only if it came a good while after the previous rally (players get the ball back and get ready first) and was
+//    struck from deep in the court; otherwise the ball was just handed over to the other side, and nothing is reported.
+//  - the first bounce after the last crossing decides. In on side X: X failed to return it, so the other side wins.
+//    Out on side X's end: the other side hit it out, so X wins. A net ball drops on the hitter's side and counts as in there.
 class RallyJudge {
-  constructor({ endAfter = 2, cooldown = 1.5, minRally = 1.5, minSpeed = 80, maxRally = 90 } = {}) {
+  constructor({ endAfter = 2, cooldown = 1.5, minRally = 1.5, minSpeed = 40, maxRally = 90, returnWindow = 4, serveQuiet = 8, serveDepth = 10 } = {}) {
     this.minRally = minRally; this.minSpeed = minSpeed; this.maxRally = maxRally;
     this.endAfter = endAfter; this.cooldown = cooldown;
+    this.returnWindow = returnWindow; this.serveQuiet = serveQuiet; this.serveDepth = serveDepth;
     this.names = { near: "近端", far: "遠端" };      // shown in reasons; a side-on camera calls them 左邊／右邊
-    this.state = "idle"; this.bounces = []; this.lastSeen = 0; this.endedAt = -1e9; this.trackId = null; this.ptsSeen = 0; this.path = [];
+    this.state = "idle"; this.bounces = []; this.lastSeen = 0; this.endedAt = -1e9; this.trackId = null; this.path = [];
+    this.lastRally = -1e9; this.crossings = []; this.side = 0;
   }
   // t: seconds; ball: main track or null; toCourt(x, y) -> [cx, cy] in feet or null when there is no court
   step(t, ball, toCourt) {
@@ -101,6 +108,12 @@ class RallyJudge {
         // with a court, only a ball that crosses the net starts a rally: bouncing the ball before serving or picking it up does not
         if (ball.pts.length >= 10 && Math.hypot(b.x - a.x, b.y - a.y) > 40 && (!toCourt || this.crossesNet(ball, toCourt))) {
           this.state = "rally"; this.bounces = []; this.startedAt = a.t; this.lastSeen = t; this.path = ball.pts.slice(); this.trackId = ball.id;
+          // time since the previous rally was over: the ball is handed over soon after, a serve comes once everyone is ready
+          this.quiet = a.t - this.lastRally;
+          const g = toCourt ? toCourt(a.x, a.y) : null;
+          this.origin = g && Math.abs(g[1]) < 60 ? g : null;
+          this.crossings = []; this.side = 0;
+          for (const q of this.path) this.noteSide(q, toCourt);
           events.push({ type: "start", t: a.t });
         }
       }
@@ -108,21 +121,38 @@ class RallyJudge {
     }
     if (fresh) {
       this.lastSeen = t;
-      if (ball.id !== this.trackId) { this.trackId = ball.id; this.path.push(...ball.pts.slice(-1)); }
-      else this.path.push(ball.pts[ball.pts.length - 1]);
+      const q = ball.pts[ball.pts.length - 1];
+      if (ball.id !== this.trackId) this.trackId = ball.id;
+      this.path.push(q);
+      this.noteSide(q, toCourt);
       const bounce = this.findBounce(toCourt);
       if (bounce) { this.bounces.push(bounce); events.push({ type: "bounce", ...bounce }); }
     }
-    if (t - this.lastSeen > this.endAfter || t - this.startedAt > this.maxRally) {
+    const noReturn = toCourt && this.crossings.length && t - this.crossings[this.crossings.length - 1] > this.returnWindow;
+    if (noReturn || t - this.lastSeen > this.endAfter || t - this.startedAt > this.maxRally) {
       this.state = "idle"; this.endedAt = t;
+      if (toCourt) {
+        if (this.crossings.length >= 2 || this.servedOnce()) { events.push({ type: "end", t, ...this.outcome() }); this.lastRally = this.crossings[this.crossings.length - 1]; }
+        else events.push({ type: "cancel", t, why: "handover" });
+      }
       // a "rally" shorter than a serve plus its bounce was something else moving (a ball being picked up, a toss)
-      if (this.lastSeen - this.startedAt >= this.minRally || this.bounces.length) events.push({ type: "end", t, ...this.outcome() });
+      else if (this.lastSeen - this.startedAt >= this.minRally || this.bounces.length) events.push({ type: "end", t, ...this.outcome() });
       else events.push({ type: "cancel", t });
     }
     return events;
   }
+  // one crossing only: a serve nobody returned (ball still beforehand, struck from deep), or the ball handed over
+  servedOnce() { return this.quiet >= this.serveQuiet && !!this.origin && Math.abs(this.origin[1]) >= this.serveDepth; }
+  // which half the ball's ground position is in; a change of half is a net crossing
+  noteSide(q, toCourt) {
+    if (!toCourt) return;
+    const g = toCourt(q.x, q.y); if (!g || !(Math.abs(g[1]) < 60) || Math.abs(g[1]) < 1.5) return;
+    const sd = Math.sign(g[1]);
+    if (this.side && sd !== this.side) this.crossings.push(q.t);
+    this.side = sd;
+  }
   // the point was decided outside the judge (tapped by hand, or the next score call was heard): stop following this rally
-  stop(t) { if (this.state === "rally") { this.state = "idle"; this.endedAt = t; } }
+  stop(t) { if (this.state === "rally") { this.state = "idle"; this.endedAt = t; this.lastRally = this.crossings.length ? this.crossings[this.crossings.length - 1] : t; } }
   // the track's ground positions are on both sides of the net. Airborne points project farther from the camera than they are,
   // but a ball flying from one half to the other still changes sides in the projection.
   crossesNet(tr, toCourt) {
@@ -134,10 +164,12 @@ class RallyJudge {
     }
     return false;
   }
-  // recent speed of a track in pixels per second
+  // recent speed of a track in pixels per second, along its path (at a bounce the ball goes down and back up, so the
+  // straight-line distance over these frames is small even though the ball is flying)
   speed(tr) {
-    const p = tr.pts, a = p[Math.max(0, p.length - 6)], b = p[p.length - 1], dt = b.t - a.t;
-    return dt > 1e-3 ? Math.hypot(b.x - a.x, b.y - a.y) / dt : 0;
+    const p = tr.pts, i0 = Math.max(0, p.length - 6), dt = p[p.length - 1].t - p[i0].t;
+    let len = 0; for (let i = i0 + 1; i < p.length; i++) len += Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y);
+    return dt > 1e-3 ? len / dt : 0;
   }
   // a low point (largest image y) four samples back, standing out from both sides
   findBounce(toCourt) {
@@ -156,13 +188,15 @@ class RallyJudge {
     return { t: c.t, x: c.x, y: c.y, court: [cx, cy], side: cy >= 0 ? "near" : "far", in: inside };
   }
   outcome() {
-    const b = [...this.bounces].reverse().find((q) => q.court);
+    const lastCross = this.crossings.length ? this.crossings[this.crossings.length - 1] : -1e9;
+    const b = this.bounces.find((q) => q.court && q.t >= lastCross) || [...this.bounces].reverse().find((q) => q.court);
     if (!b) return { winner: null, reason: "沒看清楚球的落點" };
     const other = b.side === "near" ? "far" : "near", where = this.names[b.side];
     return b.in
       ? { winner: other, reason: `球最後落在${where}界內，沒被接回`, bounce: b }
       : { winner: b.side, reason: `球落在${where}界外（對方打出界）`, bounce: b };
   }
+
 }
 
 // Traditional (side-out) doubles scoring. Teams are "A" and "B"; the game starts 0-0-2.

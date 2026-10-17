@@ -155,7 +155,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
 <div class="app">
   <header class="bar">
     <div class="brand"><b>PICKLE<i>/</i>SCORE</b><span>參考用</span></div>
-    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261017070544">賽後分析</a><a class="score" href="score.html?v=20261017070544" aria-current="page">即時計分</a></nav>
+    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261017120328">賽後分析</a><a class="score" href="score.html?v=20261017120328" aria-current="page">即時計分</a></nav>
   </header>
 
   <section class="stage" aria-label="鏡頭">
@@ -236,7 +236,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     <h2 id="h-sum" class="sum-h">這場比賽已儲存</h2>
     <p class="sum-line" id="sumLine"></p>
     <div class="big">
-      <a class="btn primary" id="sumOpen" href="./?v=20261017070544">在賽後分析查看</a>
+      <a class="btn primary" id="sumOpen" href="./?v=20261017120328">在賽後分析查看</a>
       <button class="btn" id="sumShare" type="button">存到相簿</button>
     </div>
     <p class="sum-note" id="sumNote">影片存在這個網站裡，賽後分析頁的「我的比賽」可以直接打開。Safari 可能在網站 7 天沒打開後清掉這些資料，重要的比賽請按「存到相簿」。</p>
@@ -257,7 +257,6 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
       <label>錄影<select id="recMode"><option value="rally">只錄每一球</option><option value="off">不錄影</option></select></label>
       <label>往前保留<select id="preroll"><option value="1">1 秒</option><option value="3" selected>3 秒</option><option value="5">5 秒</option></select></label>
       <label>診斷資訊<select id="diagMode"><option value="off">不顯示</option><option value="on">顯示在畫面下方</option></select></label>
-      <label>聽喊分（實驗）<select id="voiceMode"><option value="off">不使用</option><option value="on">用麥克風聽發球前的喊分</option></select></label>
       <label>自動確認<select id="autoSec"><option value="5">5 秒</option><option value="8">8 秒</option><option value="0">不自動，要手動按</option></select></label>
     </div>
     <details>
@@ -275,9 +274,9 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
   </section>
 </div>
 
-<script src="court.js?v=20261017070544"></script>
-<script src="ball.js?v=20261017070544"></script>
-<script src="match.js?v=20261017070544"></script>
+<script src="court.js?v=20261017120328"></script>
+<script src="ball.js?v=20261017120328"></script>
+<script src="match.js?v=20261017120328"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const cam = $("cam"), overlay = $("overlay"), octx = overlay.getContext("2d");
@@ -562,11 +561,10 @@ function start() {
   setCourt(null); running = true; resetPipeline(); lastCourtT = -1e9; lastT = -1;
   beginMatch();
   setChip("live", "LIVE · 等待發球");
-  startListening();
   schedule();
 }
 function stop() {
-  running = false; $("rec").hidden = true; stopListening();
+  running = false; $("rec").hidden = true;
   if (cam.srcObject) { cam.srcObject.getTracks().forEach((t) => t.stop()); cam.srcObject = null; }
   cam.pause(); wakeLock?.release?.(); wakeLock = null;
   endTap(); $("startPane").hidden = false; $("calBtn").disabled = true; $("tapBtn").disabled = true; $("stopBtn").disabled = true;
@@ -653,78 +651,6 @@ $("sumShare").addEventListener("click", async () => {
   $("sumDl").innerHTML = files.map((f) => `<li><a download="${f.name}" href="${URL.createObjectURL(f)}">${f.name}</a>（${fmtBytes(f.size)}）</li>`).join("");
 });
 
-// ---------- listening for the score call before each serve ----------
-// The server calls the score before every serve, so a heard call ends the previous rally and says who won it:
-// the call that follows a serving-team win, a receiving-team win, or no change. Anything else resets the score to the call.
-const CN = { 零: 0, 〇: 0, 一: 1, 幺: 1, 二: 2, 兩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
-const EN = { zero: 0, oh: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15 };
-// every way to read a transcript as "server score - receiver score - server number"
-function callsIn(text) {
-  let t = text.toLowerCase().replace(/[a-z]+/g, (w) => (w in EN ? ` ${EN[w]} ` : w));
-  t = t.replace(/[零〇一幺二兩三四五六七八九十]+/g, (w) => {
-    if (!w.includes("十")) return " " + [...w].map((c) => CN[c]).join("") + " ";
-    const [a, b] = w.split("十"); return ` ${(a ? CN[a] ?? 1 : 1) * 10 + (b ? CN[b] ?? 0 : 0)} `;
-  });
-  if (t.replace(/[\d\s,，、。.:：\-比到]/g, "").length > 6) return [];    // a sentence, not a score call
-  const nums = t.match(/\d+/g) || [], out = new Set();
-  if (nums.length >= 3) { const [a, b, c] = nums.slice(-3); if (c === "1" || c === "2") out.add(`${+a}-${+b}-${c}`); }
-  const all = nums.join(""), n = all.slice(-1), rest = all.slice(0, -1);
-  if ((n === "1" || n === "2") && rest.length >= 2 && rest.length <= 4)
-    for (let i = 1; i < rest.length; i++) {
-      const a = rest.slice(0, i), b = rest.slice(i);
-      if (a.length <= 2 && b.length <= 2 && !(a.length === 2 && a[0] === "0") && !(b.length === 2 && b[0] === "0")) out.add(`${+a}-${+b}-${n}`);
-    }
-  return [...out];
-}
-function heardCall(text) {
-  const calls = callsIn(text); if (!calls.length) return;
-  // what the call would be after each possible outcome of the rally that just ended
-  const after = (winner) => { const g = Object.assign(new SideOutGame(), JSON.parse(JSON.stringify(game))); g.history = []; if (winner) g.rally(winner); return g.call(); };
-  const o = game.other(game.serving), opts = [[null, after(null)], [game.serving, after(game.serving)], [o, after(o)]];
-  if (calls.includes(opts[0][1])) { clearProposal(); endRally(); setStatus(`聽到喊分「${text}」→ ${opts[0][1]}，比分不變`); return; }
-  // the last point was decided automatically and the call says the other team won it: overturn it
-  const last = log[0];
-  if (last?.auto && !last.heard && Date.now() - last.at < 60000) {
-    const g = Object.assign(new SideOutGame(), JSON.parse(JSON.stringify(game))); g.undo();
-    const flip = g.other(last.team); g.history = []; g.rally(flip);
-    if (calls.includes(g.call())) {
-      clearProposal(); endRally(); undoLast();
-      award(sideOf(flip), `聽到喊分「${g.call()}」，改判（原判：${last.reason}）`, false, last.rally);
-      log[0].heard = true;
-      setStatus(`聽到喊分「${text}」→ ${g.call()}，上一球改判為 ${flip} 隊贏`, true);
-      return;
-    }
-  }
-  for (const [winner, call] of opts.slice(1)) {
-    if (!calls.includes(call)) continue;
-    const n = proposal?.n ?? endRally(); clearProposal();
-    award(sideOf(winner), `聽到喊分「${call}」`, true, n); log[0].heard = true;
-    setStatus(`聽到喊分「${text}」→ ${call}，${winner} 隊贏上一球`);
-    return;
-  }
-  const c = parseCall(calls[0]);
-  if (calls.length === 1 && c && c[0] <= 30 && c[1] <= 30) {
-    clearProposal(); endRally(); setCall(guessServing(c[0], c[1]), c, "依喊分修正");
-    setStatus(`聽到喊分「${text}」，和目前比分接不上，已改成 ${game.call()}；不對請按「上一步」。`, true);
-  } else setStatus(`聽到「${text}」，不確定是哪個比分，沒有更動。`);
-}
-let listener = null;
-function startListening() {
-  stopListening();
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if ($("voiceMode").value !== "on" || !running) return;
-  if (!SR) { setStatus("這個瀏覽器不能聽寫，聽喊分沒有作用。", true); return; }
-  const r = new SR(); listener = r;
-  r.lang = "zh-TW"; r.continuous = true; r.interimResults = false;
-  r.onresult = (e) => { const res = e.results[e.results.length - 1]; if (res.isFinal) heardCall(res[0].transcript.trim()); };
-  r.onerror = (e) => { if (e.error === "not-allowed" || e.error === "service-not-allowed") { listener = null; setStatus("沒有麥克風或聽寫權限，聽喊分沒有作用。", true); } };
-  r.onend = () => { if (listener === r && running) setTimeout(() => { if (listener === r) try { r.start(); } catch {} }, 300); };   // phones stop listening every so often
-  try { r.start(); } catch {}
-}
-function stopListening() { const r = listener; listener = null; try { r?.abort(); } catch {} }
-$("voiceMode").addEventListener("change", () => { try { localStorage.setItem("pp.voice", $("voiceMode").value); } catch {} startListening(); });
-try { const v = localStorage.getItem("pp.voice"); if (v) $("voiceMode").value = v; } catch {}
-
 // ---------- diagnostics: what the page sees, for reporting problems from a real phone ----------
 const dg = { n: 0, cands: 0, ms: 0, since: performance.now() };
 function diag(nCands, ms) {
@@ -735,7 +661,7 @@ function diag(nCands, ms) {
   if (!on || now - dg.since < 1000) return;
   const sec = (now - dg.since) / 1000, ball = tracker.main();
   el.textContent = `每秒 ${(dg.n / sec).toFixed(0)} 張 · 處理 ${(dg.ms / dg.n).toFixed(0)}ms/張 · 像球的點 ${(dg.cands / dg.n).toFixed(1)}/張 · 球場 ${court ? "✓" : "✗"}\n`
-    + `軌跡 ${ball ? ball.pts.length + " 點 · 速度 " + judge.speed(ball).toFixed(0) + "px/s" : "無"} · 狀態 ${judge.state === "rally" ? "一球進行中" : "等待"} · 畫面 ${cam.videoWidth}×${cam.videoHeight}`;
+    + `軌跡 ${ball ? ball.pts.length + " 點 · 速度 " + judge.speed(ball).toFixed(0) + "px/s" : "無"} · 狀態 ${judge.state === "rally" ? `一球進行中（過網 ${judge.crossings.length} 次）` : "等待"} · 畫面 ${cam.videoWidth}×${cam.videoHeight}`;
   dg.n = 0; dg.cands = 0; dg.ms = 0; dg.since = now;
 }
 
@@ -791,16 +717,18 @@ function step(t, cands) {
     }
     if (e.type === "cancel") {
       setChip("live", "LIVE · 等待發球"); bouncesShown = [];
+      if (e.why === "handover") setStatus("剛剛球只過網一次、離上一球很近，當作交球，沒有計分。如果其實是一分，請直接按誰贏。");
       if (curRally) { rallyN--; curRally = null; }
       recorder?.rallyCancel();
     }
   }
   draw();
 }
-// the point was decided by hand or by a heard call while the judge still follows the ball (players hand the ball over,
-// pick it up...): close the rally and its clip now. Returns the rally number, or null when no rally was going.
+// the point was decided by hand while the judge still follows the ball (players hand the ball over, pick it up...):
+// close the rally and its clip now. Returns the rally number, or null when no rally was going.
 function endRally() {
-  if (!judge || judge.state !== "rally") return null;
+  if (!judge) return null;
+  if (judge.state !== "rally") { judge.lastRally = Math.max(judge.lastRally, lastT); return null; }   // a point the camera missed
   judge.stop(lastT); setChip("live", "LIVE · 等待發球"); bouncesShown = [];
   const r = curRally; curRally = null; recorder?.rallyEnd();
   if (!r) return null;
@@ -875,7 +803,6 @@ window.addEventListener("resize", () => { if (proc.width) draw(); });
 renderBoard();
 window.__dbg = dbg;
 window.__match = () => match;
-window.__heard = heardCall; window.__calls = callsIn;
 window.__score = () => ({ call: game.call(), serving: game.serving, log: log.map((e) => ({ team: e.team, reason: e.reason, call: e.call })), court: !!court, proposal: proposal && { winner: proposal.winner, reason: proposal.reason } });
 </script>
 </body>

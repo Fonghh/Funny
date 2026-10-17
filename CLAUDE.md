@@ -19,6 +19,7 @@
     **注意：`index.html` 的 PURE 區段裡內嵌了一份相同程式碼，兩邊要一起改。**
     只支援手機在底線後方拍；`plausibleCourt` 會丟掉不合理的套合（寧可問手動，也不要用錯的球場判斷）。
   - `ball.js`：找球（黃綠色＋移動）、`BallTracker`、`RallyJudge`（落地、一球開始/結束、判斷誰贏）、`SideOutGame`（傳統雙打計分 0-0-2）。
+    有球場時 `RallyJudge` 看節奏：球過網才開始；約 4 秒沒被打回來就結束；只過網一次又離上一球不到 8 秒的當作交球；誰贏看最後一次過網後的第一個落點。
   - `match.js`：IndexedDB（資料庫 `picklepose`：`matches`、`clips`）與 `RallyRecorder`（錯開的待命錄影，做到「偵測到球的前 N 秒」開始錄）。兩頁共用。
   - `build_pages.py`：產生 `docs/`。複製 MediaPipe 執行檔與模型、做主畫面圖示與 manifest，並在頁面連結和 script 網址加上建置時間 `?v=` 避免手機吃到快取。
   - `fetch_assets.sh`：下載 MediaPipe（`mp/`）與姿態模型（`models/`），這兩個資料夾在 `pickleball-pose/` 不進 git。
@@ -41,6 +42,7 @@ git add -A pickleball-pose docs && git commit && git push -u origin claude/pickl
 - 模擬鏡頭：`--use-fake-device-for-media-stream --use-file-for-fake-video-capture=xxx.y4m`（會循環播放，要在後面接一段靜止畫面才會有「一球結束」）。
 - 用 `python3 -m http.server` 開 `docs/`，路徑要模擬 `/Funny/`。
 - 這個容器連不到 fonghh.github.io 和 jsDelivr；部署狀態用 GitHub Actions 的 `pages build and deployment` 看。
+- `node pickleball-pose/tests/sim_rally.mjs`：模擬比賽（一般來回、交球、發球直接得分、打出界、回球掛網），改 `RallyJudge` 後先跑這個。
 - 頁面上有除錯用的 `window.__summary()`、`window.__score()`、`window.__dbg`、`window.__match()`。
 - 計分頁設定裡有「診斷資訊」開關，會在畫面下方顯示每秒張數、處理時間、像球的點數、球場是否辨識、軌跡與狀態；請使用者在真機截圖回報。
 - 所有測試都是電腦版瀏覽器模擬，回報時要講清楚「還沒在 iPhone 上驗證」。
