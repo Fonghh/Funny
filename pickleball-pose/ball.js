@@ -166,6 +166,14 @@ class SideOutGame {
     const s = this.score, lead = Math.abs(s.A - s.B), top = Math.max(s.A, s.B);
     if (top >= this.target && lead >= 2) this.winner = s.A > s.B ? "A" : "B";
   }
+  // set the call by hand, e.g. after hearing "1-0-2" called on court
+  set(serving, servingScore, receivingScore, server) {
+    this.history.push(JSON.stringify({ score: this.score, serving: this.serving, server: this.server, winner: this.winner }));
+    this.serving = serving; this.server = server;
+    this.score = { [serving]: servingScore, [this.other(serving)]: receivingScore };
+    const s = this.score, lead = Math.abs(s.A - s.B), top = Math.max(s.A, s.B);
+    this.winner = top >= this.target && lead >= 2 ? (s.A > s.B ? "A" : "B") : null;
+  }
   undo() { const h = this.history.pop(); if (h) Object.assign(this, JSON.parse(h)); }
   call() { return `${this.score[this.serving]}-${this.score[this.other(this.serving)]}-${this.server}`; }
 }

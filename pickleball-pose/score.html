@@ -118,6 +118,14 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
 .big { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .big .btn { min-height: 56px; font-size: 15px; font-weight: 700; white-space: normal; text-align: center; line-height: 1.3; }
 .tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tools.four { grid-template-columns: repeat(2, 1fr); }
+.manual .adj { border-color: var(--warn); color: var(--warn); }
+.adjust { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--warn); border-radius: 8px; background: var(--panel-2); }
+.adjust .fields { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.adjust label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.adjust select { min-height: 38px; }
+.adjust .preview { font-size: 13px; color: var(--muted); }
+.adjust .preview b { font-family: var(--display); font-size: 22px; color: var(--ink); margin-left: 6px; letter-spacing: .04em; }
 .manual { position: relative; display: grid; gap: 6px; padding: 16px 8px 8px; margin-top: 6px; border: 1.5px dashed var(--warn); border-radius: 10px; background: rgba(255, 181, 71, .05); }
 .manual > .tag { position: absolute; top: -9px; left: 10px; padding: 0 6px; background: var(--panel); color: var(--warn); font-size: 12px; font-weight: 700; letter-spacing: .04em; }
 .manual .win-btn { background: rgba(255, 181, 71, .14); border-color: var(--warn); color: var(--ink); }
@@ -204,10 +212,21 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
       <button class="btn win-btn" id="nearWin" type="button">近端隊贏這球</button>
       <button class="btn win-btn" id="farWin" type="button">遠端隊贏這球</button>
     </div>
-    <div class="tools">
+    <div class="tools four">
       <button class="btn undo" id="undoBtn" type="button">↶ 上一步</button>
+      <button class="btn adj" id="adjBtn" type="button" aria-expanded="false" aria-controls="adjust">調整比分</button>
       <button class="btn swap" id="swapBtn" type="button">⇄ 交換場地</button>
       <button class="btn reset" id="newBtn" type="button">新局</button>
+    </div>
+    <div class="adjust" id="adjust" hidden>
+      <div class="fields">
+        <label>發球方<select id="adjServing"><option value="A">A 隊</option><option value="B">B 隊</option></select></label>
+        <label>發球方分數<select id="adjS"></select></label>
+        <label>接發方分數<select id="adjR"></select></label>
+        <label>發球員<select id="adjN"><option value="1">1 號</option><option value="2">2 號</option></select></label>
+      </div>
+      <div class="preview">喊分 <b id="adjCall">0-0-2</b></div>
+      <div class="big"><button class="btn primary" id="adjOk" type="button">套用</button><button class="btn" id="adjCancel" type="button">取消</button></div>
     </div>
     </div>
   </section>
@@ -309,7 +328,7 @@ function whatHappened(team, serving, server) {
 }
 function showWhat() { const e = log[0]; $("what").hidden = !e?.what; $("what").innerHTML = e?.what || ""; }
 function renderLog() {
-  $("log").innerHTML = log.map((e) => `<li><span class="n">#${e.n} ${e.t}</span><span>${e.team} 隊贏${e.auto ? '<span class="auto">自動</span>' : ""}<br><span class="why">${e.reason}</span>${e.what ? `<br><span class="why">${e.what.replace(/<\/?b>/g, "")}</span>` : ""}</span><span class="c">${e.call}</span></li>`).join("")
+  $("log").innerHTML = log.map((e) => `<li><span class="n">#${e.n} ${e.t}</span><span>${e.adjust ? "調整比分" : e.team + " 隊贏"}${e.auto ? '<span class="auto">自動</span>' : ""}<br><span class="why">${e.reason}</span>${e.what ? `<br><span class="why">${e.what.replace(/<\/?b>/g, "")}</span>` : ""}</span><span class="c">${e.call}</span></li>`).join("")
     || `<li><span class="n">—</span><span class="why">還沒有紀錄。</span><span></span></li>`;
 }
 const t0 = Date.now();
@@ -319,6 +338,28 @@ $("farWin").addEventListener("click", () => { const n = proposal?.n ?? null; cle
 $("undoBtn").addEventListener("click", () => {
   clearProposal(); game.undo(); log.shift(); renderLog(); renderBoard();
   if (match?.points.length) { const p = match.points.pop(); const r = match.rallies.find((x) => x.n === p.rally); if (r) delete r.decision; saveMatch(); }
+});
+// fix the score by hand: pick who serves, then the three numbers of the call
+for (const id of ["adjS", "adjR"]) $(id).innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i}">${i}</option>`).join("");
+function adjCall() { return `${$("adjS").value}-${$("adjR").value}-${$("adjN").value}`; }
+function openAdjust(open) {
+  $("adjust").hidden = !open; $("adjBtn").setAttribute("aria-expanded", String(open));
+  if (!open) return;
+  $("adjServing").value = game.serving; $("adjS").value = game.score[game.serving];
+  $("adjR").value = game.score[game.other(game.serving)]; $("adjN").value = game.server;
+  $("adjCall").textContent = adjCall();
+}
+for (const id of ["adjServing", "adjS", "adjR", "adjN"]) $(id).addEventListener("change", () => { $("adjCall").textContent = adjCall(); });
+$("adjBtn").addEventListener("click", () => openAdjust($("adjust").hidden));
+$("adjCancel").addEventListener("click", () => openAdjust(false));
+$("adjOk").addEventListener("click", () => {
+  clearProposal();
+  const serving = $("adjServing").value;
+  game.set(serving, +$("adjS").value, +$("adjR").value, +$("adjN").value);
+  const what = `<b>手動調整比分</b> → ${serving} 隊發球，喊分 ${game.call()}`;
+  log.unshift({ n: log.length + 1, t: clock(), team: serving, side: sideOf(serving), reason: "依場上喊分修正", call: game.call(), auto: false, what, adjust: true });
+  if (match) { match.points.push({ rally: null, adjust: true, serving, call: game.call(), at: Date.now() }); saveMatch(); }
+  openAdjust(false); renderLog(); renderBoard();
 });
 $("swapBtn").addEventListener("click", () => { nearTeam = nearTeam === "A" ? "B" : "A"; renderBoard(); });
 $("newBtn").addEventListener("click", () => {
@@ -567,7 +608,7 @@ function showSummary(m) {
   if (!m || !(m.rallies.length || m.points.length)) return;
   const clips = clipsByMatch.get(m.id) || [], bytes = clips.reduce((a, c) => a + c.blob.size, 0);
   $("summary").hidden = false; $("summary").dataset.id = m.id;
-  $("sumLine").textContent = `A 隊 ${m.final.score.A} : ${m.final.score.B} B 隊 · ${m.points.length} 分 · 錄到 ${clips.length} 球${clips.length ? `（${fmtBytes(bytes)}）` : ""}`;
+  $("sumLine").textContent = `A 隊 ${m.final.score.A} : ${m.final.score.B} B 隊 · ${m.points.filter((p) => !p.adjust).length} 分 · 錄到 ${clips.length} 球${clips.length ? `（${fmtBytes(bytes)}）` : ""}`;
   $("sumOpen").href = `./?match=${m.id}`;
   $("sumShare").hidden = !clips.length;
   $("summary").scrollIntoView({ behavior: "smooth", block: "start" });

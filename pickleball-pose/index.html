@@ -1085,7 +1085,7 @@ async function renderMatches() {
     const clips = m.rallies.filter((r) => r.clip).length, size = m.rallies.reduce((a, r) => a + (r.clip?.size || 0), 0);
     const sc = m.final ? `${m.final.score.A}:${m.final.score.B}` : "進行中";
     const b = document.createElement("button"); b.type = "button"; b.className = "mrow";
-    b.innerHTML = `<span class="when">${fmtDate(m.startedAt)}</span><span class="sc">${sc}</span><span class="meta">${m.points.length} 分 · 錄到 ${clips} 球${size ? " · " + fmtBytes(size) : ""}</span>`;
+    b.innerHTML = `<span class="when">${fmtDate(m.startedAt)}</span><span class="sc">${sc}</span><span class="meta">${m.points.filter((p) => !p.adjust).length} 分 · 錄到 ${clips} 球${size ? " · " + fmtBytes(size) : ""}</span>`;
     b.addEventListener("click", () => showMatch(m.id));
     $("mlist").appendChild(b);
   }
