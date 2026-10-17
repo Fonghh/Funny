@@ -65,6 +65,7 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
 .viewer .chip { position: absolute; top: 8px; left: 8px; font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(5,7,9,.75); border: 1px solid var(--line-hi); color: var(--muted); }
 .viewer .chip.live { color: var(--good); border-color: var(--good); }
 .viewer .chip.rally { color: var(--ball); border-color: var(--ball); }
+.viewer .diag { position: absolute; left: 8px; right: 8px; bottom: 6px; font-family: var(--mono); font-size: 10px; line-height: 1.4; padding: 2px 6px; border-radius: 4px; background: rgba(5,7,9,.8); color: var(--ink); white-space: pre-wrap; }
 .viewer .rec { position: absolute; top: 8px; right: 8px; font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(5,7,9,.75); border: 1px solid var(--bad); color: var(--bad); }
 .viewer .rec.on::first-letter { animation: blink 1.2s steps(2, start) infinite; }
 @keyframes blink { to { visibility: hidden; } }
@@ -144,6 +145,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
       <canvas id="overlay" aria-label="球場線、球的軌跡與落點"></canvas>
       <span class="chip" id="chip">未開始</span>
       <span class="rec" id="rec" hidden>● REC</span>
+      <span class="diag" id="diag" hidden></span>
       <div class="start" id="startPane">
         <button class="btn primary" id="camBtn" type="button">開啟鏡頭開始計分</button>
         <label class="btn" for="file">用錄好的影片測試</label>
@@ -211,6 +213,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
       <label>球場線<select id="courtType"><option value="pickleball">匹克球場</option><option value="badminton">羽球場改打</option></select></label>
       <label>錄影<select id="recMode"><option value="rally">只錄每一球</option><option value="off">不錄影</option></select></label>
       <label>往前保留<select id="preroll"><option value="1">1 秒</option><option value="3" selected>3 秒</option><option value="5">5 秒</option></select></label>
+      <label>診斷資訊<select id="diagMode"><option value="off">不顯示</option><option value="on">顯示在畫面下方</option></select></label>
       <label>自動確認<select id="autoSec"><option value="5">5 秒</option><option value="8">8 秒</option><option value="0">不自動，要手動按</option></select></label>
     </div>
     <details>
@@ -353,7 +356,7 @@ $("courtType").addEventListener("change", recalibrate);
 function recalibrate() { lastCourtT = -1e9; court = null; roi = null; setStatus("校正球場中…"); }
 function start() {
   $("startPane").hidden = true; $("calBtn").disabled = false; $("stopBtn").disabled = false; $("summary").hidden = true;
-  running = true; resetPipeline(); court = null; lastCourtT = -1e9;
+  running = true; resetPipeline(); court = null; lastCourtT = -1e9; lastT = -1;
   beginMatch();
   setChip("live", "LIVE · 等待發球");
   schedule();
@@ -368,8 +371,11 @@ function stop() {
 function setChip(cls, text) { const c = $("chip"); c.className = "chip " + cls; c.textContent = text; }
 function schedule() {
   if (!running) return;
-  if (cam.requestVideoFrameCallback) cam.requestVideoFrameCallback((now, meta) => { onFrame(meta.mediaTime); schedule(); });
-  else requestAnimationFrame(() => { onFrame(cam.currentTime); schedule(); });
+  // a live camera's frame timestamps are unreliable on phones (they can stay at 0), so live frames use the phone's own clock;
+  // a recorded clip uses its position in the video
+  const clock = () => (fileMode ? cam.currentTime : performance.now() / 1000);
+  if (cam.requestVideoFrameCallback) cam.requestVideoFrameCallback((now, meta) => { onFrame(fileMode ? meta.mediaTime : now / 1000); schedule(); });
+  else requestAnimationFrame(() => { onFrame(clock()); schedule(); });
 }
 cam.addEventListener("ended", () => {
   // let the last rally finish: feed a couple of seconds of "no ball"
@@ -443,11 +449,29 @@ $("sumShare").addEventListener("click", async () => {
   $("sumDl").innerHTML = files.map((f) => `<li><a download="${f.name}" href="${URL.createObjectURL(f)}">${f.name}</a>（${fmtBytes(f.size)}）</li>`).join("");
 });
 
+// ---------- diagnostics: what the page sees, for reporting problems from a real phone ----------
+const dg = { n: 0, cands: 0, ms: 0, since: performance.now() };
+function diag(nCands, ms) {
+  dg.n++; dg.cands += nCands; dg.ms += ms;
+  const el = $("diag"), on = $("diagMode").value === "on";
+  el.hidden = !on;
+  const now = performance.now();
+  if (!on || now - dg.since < 1000) return;
+  const sec = (now - dg.since) / 1000, ball = tracker.main();
+  el.textContent = `每秒 ${(dg.n / sec).toFixed(0)} 張 · 處理 ${(dg.ms / dg.n).toFixed(0)}ms/張 · 像球的點 ${(dg.cands / dg.n).toFixed(1)}/張 · 球場 ${court ? "✓" : "✗"}\n`
+    + `軌跡 ${ball ? ball.pts.length + " 點 · 速度 " + judge.speed(ball).toFixed(0) + "px/s" : "無"} · 狀態 ${judge.state === "rally" ? "一球進行中" : "等待"} · 畫面 ${cam.videoWidth}×${cam.videoHeight}`;
+  dg.n = 0; dg.cands = 0; dg.ms = 0; dg.since = now;
+}
+
 // ---------- per-frame work ----------
 const dbg = { frames: 0, cands: 0, events: [], courts: [] };
+let lastT = -1;
 function onFrame(t) {
   if (!cam.videoWidth) return;
+  if (!(t > lastT)) t = lastT + 0.001;            // time must always move forward
+  lastT = t;
   dbg.frames++;
+  const tStart = performance.now();
   const w = 640, h = Math.round(640 * cam.videoHeight / cam.videoWidth);
   if (proc.width !== w || proc.height !== h) { proc.width = w; proc.height = h; prevGray = null; }
   pctx.drawImage(cam, 0, 0, w, h);
@@ -464,6 +488,7 @@ function onFrame(t) {
   const { cands, gray } = ballCandidates(rgba, w, h, prevGray, roi);
   prevGray = gray; dbg.cands += cands.length;
   step(t, cands);
+  diag(cands.length, performance.now() - tStart);
 }
 function step(t, cands) {
   tracker.update(t, cands);

@@ -54,7 +54,10 @@ class BallTracker {
       const last = tr.pts[tr.pts.length - 1], gap = t - last.t;
       if (gap > 0.25) { tr.dead = true; continue; }
       let vx = 0, vy = 0;
-      if (tr.pts.length >= 2) { const p = tr.pts[tr.pts.length - 2]; vx = (last.x - p.x) / (last.t - p.t); vy = (last.y - p.y) / (last.t - p.t); }
+      if (tr.pts.length >= 2) {
+        const p = tr.pts[tr.pts.length - 2], dt = last.t - p.t;
+        if (dt > 1e-4) { vx = (last.x - p.x) / dt; vy = (last.y - p.y) / dt; }
+      }
       const ex = last.x + vx * gap, ey = last.y + vy * gap;
       let best = -1, bd = 1e9;
       cands.forEach((c, k) => { if (used.has(k)) return; const d = Math.hypot(c.x - ex, c.y - ey); if (d < bd) { bd = d; best = k; } });
@@ -81,15 +84,16 @@ class BallTracker {
 // Outcome rule: the last bounce decides. In on side X: X failed to return it, so the other side wins.
 // Out on side X's end: the other side hit it out, so X wins. A net ball drops on the hitter's side and counts as in there.
 class RallyJudge {
-  constructor({ endAfter = 2, cooldown = 1.5, minRally = 1.5 } = {}) {
-    this.minRally = minRally;
+  constructor({ endAfter = 2, cooldown = 1.5, minRally = 1.5, minSpeed = 80, maxRally = 90 } = {}) {
+    this.minRally = minRally; this.minSpeed = minSpeed; this.maxRally = maxRally;
     this.endAfter = endAfter; this.cooldown = cooldown;
     this.state = "idle"; this.bounces = []; this.lastSeen = 0; this.endedAt = -1e9; this.trackId = null; this.ptsSeen = 0; this.path = [];
   }
   // t: seconds; ball: main track or null; toCourt(x, y) -> [cx, cy] in feet or null when there is no court
   step(t, ball, toCourt) {
     const events = [];
-    const fresh = ball && ball.pts[ball.pts.length - 1].t === t;
+    // only a track that is moving like a ball keeps a rally alive (a yellow shirt drifting across does not)
+    const fresh = ball && ball.pts[ball.pts.length - 1].t === t && this.speed(ball) >= this.minSpeed;
     if (this.state === "idle") {
       if (ball && fresh && t - this.endedAt > this.cooldown) {
         const a = ball.pts[0], b = ball.pts[ball.pts.length - 1];
@@ -107,13 +111,18 @@ class RallyJudge {
       const bounce = this.findBounce(toCourt);
       if (bounce) { this.bounces.push(bounce); events.push({ type: "bounce", ...bounce }); }
     }
-    if (t - this.lastSeen > this.endAfter) {
+    if (t - this.lastSeen > this.endAfter || t - this.startedAt > this.maxRally) {
       this.state = "idle"; this.endedAt = t;
       // a "rally" shorter than a serve plus its bounce was something else moving (a ball being picked up, a toss)
       if (this.lastSeen - this.startedAt >= this.minRally || this.bounces.length) events.push({ type: "end", t, ...this.outcome() });
       else events.push({ type: "cancel", t });
     }
     return events;
+  }
+  // recent speed of a track in pixels per second
+  speed(tr) {
+    const p = tr.pts, a = p[Math.max(0, p.length - 6)], b = p[p.length - 1], dt = b.t - a.t;
+    return dt > 1e-3 ? Math.hypot(b.x - a.x, b.y - a.y) / dt : 0;
   }
   // a low point (largest image y) four samples back, standing out from both sides
   findBounce(toCourt) {

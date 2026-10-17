@@ -41,6 +41,7 @@ git add -A pickleball-pose docs && git commit && git push -u origin claude/pickl
 - 用 `python3 -m http.server` 開 `docs/`，路徑要模擬 `/Funny/`。
 - 這個容器連不到 fonghh.github.io 和 jsDelivr；部署狀態用 GitHub Actions 的 `pages build and deployment` 看。
 - 頁面上有除錯用的 `window.__summary()`、`window.__score()`、`window.__dbg`、`window.__match()`。
+- 計分頁設定裡有「診斷資訊」開關，會在畫面下方顯示每秒張數、處理時間、像球的點數、球場是否辨識、軌跡與狀態；請使用者在真機截圖回報。
 - 所有測試都是電腦版瀏覽器模擬，回報時要講清楚「還沒在 iPhone 上驗證」。
 
 ## iPhone Safari 踩過的坑
@@ -48,6 +49,7 @@ git add -A pickleball-pose docs && git commit && git push -u origin claude/pickl
 - **隱藏的 `<video>` 不會載入**：截圖要從主影片抓，不要用第二個隱藏的 video。
 - 設定相同的 `currentTime` 可能不會觸發 `seeked`：seek 一律加逾時。
 - 瀏覽器錄的影片可能沒有長度（`duration` 是 Infinity）：先把 `currentTime` 設很大，等 `durationchange`。
+- **即時鏡頭的畫面時間戳記不可靠**（`requestVideoFrameCallback` 的 `mediaTime` 在手機上可能一直不變）：鏡頭模式一律用 `performance.now()` 計時；只有播放影片檔時才用 `mediaTime`。電腦模擬鏡頭測不出這個問題。
 - GitHub Pages 讓手機快取 10 分鐘：頁面之間的連結和 script 要帶 `?v=` 建置時間。
 - Safari 可能清掉 7 天沒開的網站資料（IndexedDB 裡的比賽與影片）。
 
