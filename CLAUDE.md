@@ -17,6 +17,7 @@
   - `score.html`：即時計分頁（完整網頁）。
   - `court.js`：球場白線辨識（地板顏色 → 白線遮罩 → 方向性 Hough → 消失點找邊線 → 套 20×44 呎球場模板 → homography）。
     **注意：`index.html` 的 PURE 區段裡內嵌了一份相同程式碼，兩邊要一起改。**
+    只支援手機在底線後方拍；`plausibleCourt` 會丟掉不合理的套合（寧可問手動，也不要用錯的球場判斷）。
   - `ball.js`：找球（黃綠色＋移動）、`BallTracker`、`RallyJudge`（落地、一球開始/結束、判斷誰贏）、`SideOutGame`（傳統雙打計分 0-0-2）。
   - `match.js`：IndexedDB（資料庫 `picklepose`：`matches`、`clips`）與 `RallyRecorder`（錯開的待命錄影，做到「偵測到球的前 N 秒」開始錄）。兩頁共用。
   - `build_pages.py`：產生 `docs/`。複製 MediaPipe 執行檔與模型、做主畫面圖示與 manifest，並在頁面連結和 script 網址加上建置時間 `?v=` 避免手機吃到快取。

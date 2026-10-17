@@ -98,6 +98,8 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
 .team .nm small { color: var(--muted); font-size: 12px; }
 .team .sv { font-family: var(--mono); font-size: 11px; color: var(--ball); }
 .team .pts { font-family: var(--display); font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.what { text-align: center; font-size: 12px; color: var(--muted); }
+.what b { color: var(--ink); }
 .win { text-align: center; font-weight: 700; color: var(--good); }
 
 .propose { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--ball); border-radius: 10px; background: rgba(243, 210, 60, .07); }
@@ -150,7 +152,8 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
         <button class="btn primary" id="camBtn" type="button">開啟鏡頭開始計分</button>
         <label class="btn" for="file">用錄好的影片測試</label>
         <input type="file" id="file" accept="video/*">
-        <p>手機橫放、架高固定在底線後方，拍到整面球場。</p>
+        <p><b>架設方式：</b>手機橫放，架在<b>底線正後方中央</b>，越高越好（約 2 公尺以上），拍到整面球場。</p>
+        <p>從斜角或場邊拍，球場會辨識不到或判斷錯誤。</p>
       </div>
     </div>
     <div class="row">
@@ -166,6 +169,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
       <div class="team" id="teamA"><div class="nm"><b>A 隊</b><small id="sideA">近端</small><span class="sv" id="svA"></span></div><span class="pts" id="ptsA">0</span></div>
       <div class="team" id="teamB"><div class="nm"><b>B 隊</b><small id="sideB">遠端</small><span class="sv" id="svB"></span></div><span class="pts" id="ptsB">0</span></div>
     </div>
+    <div class="what" id="what" hidden></div>
     <div class="win" id="winMsg" hidden></div>
 
     <div class="propose" id="propose" hidden>
@@ -258,13 +262,15 @@ function renderBoard() {
   }
   $("nearWin").textContent = `近端（${nearTeam} 隊）贏這球`;
   $("farWin").textContent = `遠端（${teamOf("far")} 隊）贏這球`;
+  showWhat();
   $("winMsg").hidden = !game.winner;
   if (game.winner) $("winMsg").textContent = `${game.winner} 隊贏得這一局！`;
 }
 function award(side, reason, auto, rallyN = null) {
-  const team = teamOf(side);
+  const team = teamOf(side), serving = game.serving, server = game.server;
   game.rally(team);
-  log.unshift({ n: log.length + 1, t: clock(), team, side, reason, call: game.call(), auto });
+  const what = whatHappened(team, serving, server);
+  log.unshift({ n: log.length + 1, t: clock(), team, side, reason, call: game.call(), auto, what });
   if (match) {
     match.points.push({ rally: rallyN, team, side, reason, auto, call: game.call(), at: Date.now() });
     const r = rallyN != null && match.rallies.find((x) => x.n === rallyN);
@@ -274,8 +280,16 @@ function award(side, reason, auto, rallyN = null) {
   renderLog(); renderBoard();
   if (navigator.vibrate) navigator.vibrate(30);
 }
+// side-out rules in words: only the serving team scores; the receiving team winning moves the serve on
+function whatHappened(team, serving, server) {
+  const other = team === "A" ? "B" : "A";
+  if (team === serving) return `<b>${team} 隊（發球方）贏這球</b> → ${team} 隊得 1 分，同一人繼續發球`;
+  if (server === 1) return `<b>${team} 隊（接發球方）贏這球</b> → 接發球方贏球不得分，${other} 隊換 2 號發球`;
+  return `<b>${team} 隊（接發球方）贏這球</b> → 接發球方贏球不得分，換 ${team} 隊發球（1 號）`;
+}
+function showWhat() { const e = log[0]; $("what").hidden = !e?.what; $("what").innerHTML = e?.what || ""; }
 function renderLog() {
-  $("log").innerHTML = log.map((e) => `<li><span class="n">#${e.n} ${e.t}</span><span>${e.team} 隊贏${e.auto ? '<span class="auto">自動</span>' : ""}<br><span class="why">${e.reason}</span></span><span class="c">${e.call}</span></li>`).join("")
+  $("log").innerHTML = log.map((e) => `<li><span class="n">#${e.n} ${e.t}</span><span>${e.team} 隊贏${e.auto ? '<span class="auto">自動</span>' : ""}<br><span class="why">${e.reason}</span>${e.what ? `<br><span class="why">${e.what.replace(/<\/?b>/g, "")}</span>` : ""}</span><span class="c">${e.call}</span></li>`).join("")
     || `<li><span class="n">—</span><span class="why">還沒有紀錄。</span><span></span></li>`;
 }
 const t0 = Date.now();
@@ -304,7 +318,8 @@ function propose(ev) {
   proposal = ev;
   $("propose").hidden = false;
   if (!ev.winner) {
-    $("pq").textContent = "這球誰贏？"; $("pwhy").textContent = ev.reason + "，請手動選擇。";
+    $("pq").textContent = "這球誰贏？";
+    $("pwhy").textContent = (court ? ev.reason : "還沒辨識到球場，無法判斷落點") + "，請手動選擇。";
     $("pOk").hidden = true; $("pFlip").hidden = true; $("pcd").parentElement.hidden = true;
     return;
   }
