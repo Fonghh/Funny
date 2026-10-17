@@ -87,6 +87,7 @@ class RallyJudge {
   constructor({ endAfter = 2, cooldown = 1.5, minRally = 1.5, minSpeed = 80, maxRally = 90 } = {}) {
     this.minRally = minRally; this.minSpeed = minSpeed; this.maxRally = maxRally;
     this.endAfter = endAfter; this.cooldown = cooldown;
+    this.names = { near: "近端", far: "遠端" };      // shown in reasons; a side-on camera calls them 左邊／右邊
     this.state = "idle"; this.bounces = []; this.lastSeen = 0; this.endedAt = -1e9; this.trackId = null; this.ptsSeen = 0; this.path = [];
   }
   // t: seconds; ball: main track or null; toCourt(x, y) -> [cx, cy] in feet or null when there is no court
@@ -143,7 +144,7 @@ class RallyJudge {
   outcome() {
     const b = [...this.bounces].reverse().find((q) => q.court);
     if (!b) return { winner: null, reason: "沒看清楚球的落點" };
-    const other = b.side === "near" ? "far" : "near", where = b.side === "near" ? "近端" : "遠端";
+    const other = b.side === "near" ? "far" : "near", where = this.names[b.side];
     return b.in
       ? { winner: other, reason: `球最後落在${where}界內，沒被接回`, bounce: b }
       : { winner: b.side, reason: `球落在${where}界外（對方打出界）`, bounce: b };

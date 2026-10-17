@@ -77,6 +77,14 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
 .dl a { color: var(--cyan); }
 .viewer .start { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 16px; text-align: center; background: radial-gradient(ellipse at center, rgba(63,212,255,.10), transparent 70%); }
 .viewer .start p { margin: 0; color: var(--muted); font-size: 12px; max-width: 30ch; }
+.viewer .start .lens { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.viewer .start .lens select { min-height: 32px; }
+.viewer.tapping canvas { touch-action: none; cursor: crosshair; }
+.btn.tap { border-color: var(--warn); color: var(--warn); }
+.tapbar { position: relative; display: grid; gap: 8px; padding: 16px 8px 8px; margin-top: 4px; border: 1.5px dashed var(--warn); border-radius: 10px; background: rgba(255, 181, 71, .05); }
+.tapbar > .tag { position: absolute; top: -9px; left: 10px; padding: 0 6px; background: var(--bg); color: var(--warn); font-size: 12px; font-weight: 700; }
+.tapbar .msg { font-size: 13px; }
+.tapbar .msg b { color: var(--warn); }
 .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .status { font-family: var(--mono); font-size: 11px; color: var(--muted); min-height: 16px; }
 .status.err { color: var(--bad); }
@@ -138,7 +146,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
 <div class="app">
   <header class="bar">
     <div class="brand"><b>PICKLE<i>/</i>SCORE</b><span>參考用</span></div>
-    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261017061836">賽後分析</a><a class="score" href="score.html?v=20261017061836" aria-current="page">即時計分</a></nav>
+    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261017062822">賽後分析</a><a class="score" href="score.html?v=20261017062822" aria-current="page">即時計分</a></nav>
   </header>
 
   <section class="stage" aria-label="鏡頭">
@@ -152,13 +160,24 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
         <button class="btn primary" id="camBtn" type="button">開啟鏡頭開始計分</button>
         <label class="btn" for="file">用錄好的影片測試</label>
         <input type="file" id="file" accept="video/*">
+        <label class="lens">鏡頭<select id="lens"><option value="1">1x 一般</option><option value="0.5">0.5x 超廣角</option></select></label>
         <p><b>架設方式：</b>手機橫放，架在<b>底線正後方中央</b>，越高越好（約 2 公尺以上），拍到整面球場。</p>
-        <p>從斜角或場邊拍，球場會辨識不到或判斷錯誤。</p>
+        <p>從斜角或側面拍：開始後按「手動點四角」，在畫面上點出球場。</p>
       </div>
     </div>
     <div class="row">
       <button class="btn" id="calBtn" type="button" disabled>重新校正球場</button>
+      <button class="btn tap" id="tapBtn" type="button" disabled>手動點四角</button>
       <button class="btn" id="stopBtn" type="button" disabled>結束比賽並儲存</button>
+    </div>
+    <div class="tapbar" id="tapBar" role="group" aria-labelledby="tapTag" hidden>
+      <span class="tag" id="tapTag">✎ 手動點四角</span>
+      <div class="msg" id="tapMsg"></div>
+      <div class="tools">
+        <button class="btn primary" id="tapOk" type="button" disabled>完成</button>
+        <button class="btn" id="tapRedo" type="button">重點</button>
+        <button class="btn" id="tapCancel" type="button">取消</button>
+      </div>
     </div>
     <div class="status" id="status" role="status">開啟鏡頭後會先自動辨識球場。</div>
   </section>
@@ -197,7 +216,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     <h2 id="h-sum" class="sum-h">這場比賽已儲存</h2>
     <p class="sum-line" id="sumLine"></p>
     <div class="big">
-      <a class="btn primary" id="sumOpen" href="./?v=20261017061836">在賽後分析查看</a>
+      <a class="btn primary" id="sumOpen" href="./?v=20261017062822">在賽後分析查看</a>
       <button class="btn" id="sumShare" type="button">存到相簿</button>
     </div>
     <p class="sum-note" id="sumNote">影片存在這個網站裡，賽後分析頁的「我的比賽」可以直接打開。Safari 可能在網站 7 天沒打開後清掉這些資料，重要的比賽請按「存到相簿」。</p>
@@ -235,9 +254,9 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
   </section>
 </div>
 
-<script src="court.js?v=20261017061836"></script>
-<script src="ball.js?v=20261017061836"></script>
-<script src="match.js?v=20261017061836"></script>
+<script src="court.js?v=20261017062822"></script>
+<script src="ball.js?v=20261017062822"></script>
+<script src="match.js?v=20261017062822"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const cam = $("cam"), overlay = $("overlay"), octx = overlay.getContext("2d");
@@ -251,7 +270,8 @@ const log = [];
 function newGame() { return new SideOutGame({ firstServer: $("firstServe").value, target: +$("target").value }); }
 const teamOf = (side) => side === "near" ? nearTeam : (nearTeam === "A" ? "B" : "A");
 const sideOf = (team) => team === nearTeam ? "near" : "far";
-const sideName = (side) => side === "near" ? "近端" : "遠端";
+let names = { near: "近端", far: "遠端" };       // a side-on camera sees the two ends as 左邊／右邊
+const sideName = (side) => names[side];
 function renderBoard() {
   $("call").textContent = game.call();
   for (const T of ["A", "B"]) {
@@ -260,8 +280,8 @@ function renderBoard() {
     $("sv" + T).textContent = game.serving === T ? `● 發球 ${game.server} 號` : "";
     $("side" + T).textContent = sideName(sideOf(T));
   }
-  $("nearWin").textContent = `近端（${nearTeam} 隊）贏這球`;
-  $("farWin").textContent = `遠端（${teamOf("far")} 隊）贏這球`;
+  $("nearWin").textContent = `${names.near}（${nearTeam} 隊）贏這球`;
+  $("farWin").textContent = `${names.far}（${teamOf("far")} 隊）贏這球`;
   showWhat();
   $("winMsg").hidden = !game.winner;
   if (game.winner) $("winMsg").textContent = `${game.winner} 隊贏得這一局！`;
@@ -347,31 +367,132 @@ $("pFlip").addEventListener("click", () => accept(true));
 
 // ---------- video source: camera or a recorded file ----------
 let running = false, tracker, judge, prevGray = null, court = null, lastCourtT = -1e9, roi = null, bouncesShown = [], wakeLock = null, fileMode = false;
-function resetPipeline() { tracker = new BallTracker(1); judge = new RallyJudge(); prevGray = null; bouncesShown = []; }
+function resetPipeline() { tracker = new BallTracker(1); judge = new RallyJudge(); judge.names = names; prevGray = null; bouncesShown = []; }
 $("camBtn").addEventListener("click", async () => {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } } });
+    const { stream, note } = await openCamera($("lens").value === "0.5");
     cam.srcObject = stream; fileMode = false;
     await cam.play();
+    camNote = note ? note + " " : "";
     try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
     start();
   } catch (e) {
     setStatus(`無法開啟鏡頭：${e.message || e}。請允許這個網站使用相機。`, true);
   }
 });
+// 0.5x: iPhones list the ultra-wide as its own camera; some Android phones offer it as zoom below 1 instead
+let camNote = "";         // e.g. the 0.5x lens was not available; kept in front of the court messages
+async function openCamera(wide) {
+  const size = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } };
+  const get = (video) => navigator.mediaDevices.getUserMedia({ audio: false, video: { ...video, ...size } });
+  let stream = await get({ facingMode: "environment" });
+  if (!wide) return { stream };
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+  const uw = devs.find((d) => /ultra ?wide|超廣角|超广角/i.test(d.label));
+  if (uw) {
+    stream.getTracks().forEach((t) => t.stop());
+    return { stream: await get({ deviceId: { exact: uw.deviceId } }) };
+  }
+  const track = stream.getVideoTracks()[0], zoom = track.getCapabilities?.().zoom;
+  if (zoom && zoom.min < 1) {
+    try { await track.applyConstraints({ advanced: [{ zoom: Math.max(zoom.min, 0.5) }] }); return { stream }; } catch {}
+  }
+  return { stream, note: "這支手機的瀏覽器沒有提供超廣角鏡頭給網頁使用，先用 1x。" };
+}
+try { const v = localStorage.getItem("pp.lens"); if (v) $("lens").value = v; } catch {}
+$("lens").addEventListener("change", () => { try { localStorage.setItem("pp.lens", $("lens").value); } catch {} });
 $("file").addEventListener("change", async () => {
   const f = $("file").files[0]; if (!f) return;
-  cam.srcObject = null; cam.src = URL.createObjectURL(f); fileMode = true; cam.loop = false;
+  cam.srcObject = null; cam.src = URL.createObjectURL(f); fileMode = true; cam.loop = false; camNote = "";
   try { await cam.play(); } catch (e) { setStatus("影片無法播放，請換一段。", true); return; }
   start();
 });
 $("stopBtn").addEventListener("click", () => { clearProposal(); const m = finishMatch(); stop(); showSummary(m); });
 $("calBtn").addEventListener("click", recalibrate);
 $("courtType").addEventListener("change", recalibrate);
-function recalibrate() { lastCourtT = -1e9; court = null; roi = null; setStatus("校正球場中…"); }
+function recalibrate() { endTap(); lastCourtT = -1e9; setCourt(null); setStatus("校正球場中…"); }
+// the court in use, from line detection or from tapped corners. Also decides what the two ends are called.
+function setCourt(c) {
+  court = c; roi = c ? courtRoi(c, proc.width || 640, proc.height || 360) : null;
+  names = c ? endNames(c.m2i) : { near: "近端", far: "遠端" };
+  if (judge) judge.names = names;
+  if (c && match) { match.court = { m2i: c.m2i, i2m: c.i2m, template: c.template, corners: c.corners }; saveMatch(); }
+  renderBoard();
+}
+// filmed from the side, both halves are about as far from the camera and sit left and right of each other
+function endNames(m2i) {
+  const a = hApply(m2i, 10, 11), b = hApply(m2i, 10, -11), aspect = (proc.width || 16) / (proc.height || 9);
+  const dx = (b[0] - a[0]) * aspect, dy = b[1] - a[1], depth = Math.max(a[2], b[2]) / Math.min(a[2], b[2]);
+  if (a[2] > 0 && b[2] > 0 && depth < 1.5 && Math.abs(dx) > 1.5 * Math.abs(dy)) return dx > 0 ? { near: "左邊", far: "右邊" } : { near: "右邊", far: "左邊" };
+  return { near: "近端", far: "遠端" };
+}
+
+// ---------- tapping the court's corners by hand (any camera angle) ----------
+// The four corners of one half: its baseline, then where the net line meets the two sidelines. That half becomes the near end.
+const TAP_FEET = [[0, 22], [20, 22], [20, 0], [0, 0]];
+const TAP_HINT = ["你這一側<b>底線的左角</b>", "同一條<b>底線的右角</b>", "球網正下方，<b>右邊邊線</b>的端點", "球網正下方，<b>左邊邊線</b>的端點"];
+let tap = null;           // { pts: [[x, y] normalized], drag: index or -1, wasPlaying }
+function beginTap() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("pp.corners") || "null"); } catch {}
+  tap = { pts: Array.isArray(saved) && saved.length === 4 ? saved : [], drag: -1, wasPlaying: fileMode && !cam.paused };
+  if (fileMode) cam.pause();
+  $("viewer").classList.add("tapping"); $("tapBar").hidden = false; updateTap();
+}
+function endTap() {
+  if (!tap) return;
+  if (tap.wasPlaying) cam.play().catch(() => {});
+  tap = null; $("viewer").classList.remove("tapping"); $("tapBar").hidden = true; draw();
+}
+// the homography from the tapped points, with the net corners swapped if they were tapped in the other order
+function tapCourt(pts) {
+  if (pts.length < 4) return null;
+  const [a, b, c, d] = pts, cross = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  const meets = (p1, p2, q1, q2) => cross(p1, p2, q1) * cross(p1, p2, q2) < 0 && cross(q1, q2, p1) * cross(q1, q2, p2) < 0;
+  const img = meets(a, d, b, c) ? [a, b, d, c] : [a, b, c, d];
+  if (meets(img[0], img[1], img[2], img[3]) || quadArea(img) < 0.002) return null;
+  const m2i = homography(TAP_FEET, img); if (!m2i) return null;
+  const i2m = hInvert(m2i); if (!i2m) return null;
+  if ([[0, -22], [20, -22], [10, 11]].some(([x, y]) => hApply(m2i, x, y)[2] <= 0)) return null;
+  return { m2i, i2m, template: $("courtType").value, manual: true, corners: img };
+}
+function updateTap() {
+  const n = tap.pts.length, ok = !!tapCourt(tap.pts);
+  $("tapOk").disabled = !ok;
+  $("tapMsg").innerHTML = n < 4 ? `點第 ${n + 1} 點（共 4 點）：${TAP_HINT[n]}`
+    : ok ? "點好了。可以拖動圓點微調，橘線對準白線後按「完成」。" : "這 4 點圍不成球場，請按「重點」重新點。";
+  draw();
+}
+function tapPos(e) { const r = overlay.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]; }
+overlay.addEventListener("pointerdown", (e) => {
+  if (!tap) return;
+  e.preventDefault();
+  const p = tapPos(e), r = overlay.getBoundingClientRect();
+  let best = -1, bd = 30;   // grab a point within 30 css px
+  tap.pts.forEach((q, i) => { const d = Math.hypot((q[0] - p[0]) * r.width, (q[1] - p[1]) * r.height); if (d < bd) { bd = d; best = i; } });
+  if (best < 0 && tap.pts.length < 4) { tap.pts.push(p); best = tap.pts.length - 1; }
+  tap.drag = best;
+  if (best >= 0) overlay.setPointerCapture(e.pointerId);
+  updateTap();
+});
+overlay.addEventListener("pointermove", (e) => {
+  if (!tap || tap.drag < 0) return;
+  const p = tapPos(e); tap.pts[tap.drag] = [Math.min(1, Math.max(0, p[0])), Math.min(1, Math.max(0, p[1]))]; updateTap();
+});
+overlay.addEventListener("pointerup", () => { if (tap) tap.drag = -1; });
+$("tapBtn").addEventListener("click", () => (tap ? endTap() : beginTap()));
+$("tapRedo").addEventListener("click", () => { tap.pts = []; updateTap(); });
+$("tapCancel").addEventListener("click", endTap);
+$("tapOk").addEventListener("click", () => {
+  const c = tapCourt(tap.pts); if (!c) return;
+  try { localStorage.setItem("pp.corners", JSON.stringify(tap.pts)); } catch {}
+  endTap(); setCourt(c); lastCourtT = Infinity;
+  dbg.courts.push({ t: lastT, ok: true, manual: true });
+  setStatus(`已用手動四角設定球場（${names.near}是你點的那半場）。要改回自動辨識就按「重新校正球場」。`);
+});
 function start() {
-  $("startPane").hidden = true; $("calBtn").disabled = false; $("stopBtn").disabled = false; $("summary").hidden = true;
-  running = true; resetPipeline(); court = null; lastCourtT = -1e9; lastT = -1;
+  $("startPane").hidden = true; $("calBtn").disabled = false; $("tapBtn").disabled = false; $("stopBtn").disabled = false; $("summary").hidden = true;
+  setCourt(null); running = true; resetPipeline(); lastCourtT = -1e9; lastT = -1;
   beginMatch();
   setChip("live", "LIVE · 等待發球");
   schedule();
@@ -380,7 +501,7 @@ function stop() {
   running = false; $("rec").hidden = true;
   if (cam.srcObject) { cam.srcObject.getTracks().forEach((t) => t.stop()); cam.srcObject = null; }
   cam.pause(); wakeLock?.release?.(); wakeLock = null;
-  $("startPane").hidden = false; $("calBtn").disabled = true; $("stopBtn").disabled = true;
+  endTap(); $("startPane").hidden = false; $("calBtn").disabled = true; $("tapBtn").disabled = true; $("stopBtn").disabled = true;
   setChip("", "未開始"); setStatus("已停止。");
 }
 function setChip(cls, text) { const c = $("chip"); c.className = "chip " + cls; c.textContent = text; }
@@ -492,13 +613,12 @@ function onFrame(t) {
   pctx.drawImage(cam, 0, 0, w, h);
   const rgba = pctx.getImageData(0, 0, w, h).data;
   // court: at the start, when asked, and every 10 s between rallies (it takes a few hundred ms)
-  if (!court ? t - lastCourtT > 1 : (judge.state === "idle" && t - lastCourtT > 10)) {
+  if (!court?.manual && !tap && (!court ? t - lastCourtT > 1 : (judge.state === "idle" && t - lastCourtT > 10))) {
     lastCourtT = t;
     const c = detectCourt(rgba, w, h, null, $("courtType").value);
     dbg.courts.push({ t: +t.toFixed(2), ok: !!c, tpl: c?.template, hit: c?.hit, miss: c?.miss });
-    if (c && match) { match.court = { m2i: c.m2i, i2m: c.i2m, template: c.template }; saveMatch(); }
-    if (c) { court = c; roi = courtRoi(c, w, h); setStatus("已辨識球場（青色虛線）。看到球在動就開始判斷；線沒對準就按「重新校正球場」。"); }
-    else if (!court) setStatus("還沒找到球場白線：手機架高、橫放，整面場入鏡後會自動辨識。");
+    if (c) { setCourt(c); setStatus(camNote + "已辨識球場（青色虛線）。看到球在動就開始判斷；線沒對準就按「重新校正球場」。"); }
+    else if (!court) setStatus(camNote + "還沒找到球場白線：手機架高、橫放，整面場入鏡後會自動辨識。斜角或側面拍請按「手動點四角」。");
   }
   const { cands, gray } = ballCandidates(rgba, w, h, prevGray, roi);
   prevGray = gray; dbg.cands += cands.length;
@@ -546,6 +666,26 @@ function courtRoi(c, w, h) {
 }
 
 // ---------- overlay ----------
+function drawTap(W, H, lw) {
+  const c = tapCourt(tap.pts), warn = css("--warn");
+  octx.save(); octx.strokeStyle = warn; octx.lineWidth = lw * 1.2;
+  if (c) for (const [x0, y0, x1, y1] of COURT_TEMPLATES[c.template].lines) {
+    octx.beginPath(); let pen = false;
+    for (let k = 0; k <= 10; k++) {
+      const q = hApply(c.m2i, x0 + (x1 - x0) * k / 10, y0 + (y1 - y0) * k / 10);
+      if (q[2] <= 0) { pen = false; continue; }
+      pen ? octx.lineTo(q[0] * W, q[1] * H) : octx.moveTo(q[0] * W, q[1] * H); pen = true;
+    }
+    octx.stroke();
+  }
+  octx.font = `700 ${Math.round(lw * 7)}px sans-serif`; octx.textAlign = "center"; octx.textBaseline = "middle";
+  tap.pts.forEach(([x, y], i) => {
+    octx.fillStyle = "rgba(5,7,9,.6)"; octx.beginPath(); octx.arc(x * W, y * H, lw * 8, 0, Math.PI * 2); octx.fill();
+    octx.lineWidth = lw * 1.5; octx.stroke();
+    octx.fillStyle = warn; octx.fillText(String(i + 1), x * W, y * H);
+  });
+  octx.restore();
+}
 function draw() {
   const r = overlay.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
   if (overlay.width !== Math.round(r.width * dpr)) { overlay.width = Math.round(r.width * dpr); overlay.height = Math.round(r.height * dpr); }
@@ -564,7 +704,8 @@ function draw() {
     }
     octx.restore();
   }
-  const ball = tracker.main();
+  if (tap) drawTap(W, H, lw);
+  const ball = tracker?.main();
   if (ball) {
     const pts = ball.pts.slice(-36);
     octx.lineCap = "round";
