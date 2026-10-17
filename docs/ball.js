@@ -98,7 +98,8 @@ class RallyJudge {
     if (this.state === "idle") {
       if (ball && fresh && t - this.endedAt > this.cooldown) {
         const a = ball.pts[0], b = ball.pts[ball.pts.length - 1];
-        if (ball.pts.length >= 10 && Math.hypot(b.x - a.x, b.y - a.y) > 40) {
+        // with a court, only a ball that crosses the net starts a rally: bouncing the ball before serving or picking it up does not
+        if (ball.pts.length >= 10 && Math.hypot(b.x - a.x, b.y - a.y) > 40 && (!toCourt || this.crossesNet(ball, toCourt))) {
           this.state = "rally"; this.bounces = []; this.startedAt = a.t; this.lastSeen = t; this.path = ball.pts.slice(); this.trackId = ball.id;
           events.push({ type: "start", t: a.t });
         }
@@ -119,6 +120,19 @@ class RallyJudge {
       else events.push({ type: "cancel", t });
     }
     return events;
+  }
+  // the point was decided outside the judge (tapped by hand, or the next score call was heard): stop following this rally
+  stop(t) { if (this.state === "rally") { this.state = "idle"; this.endedAt = t; } }
+  // the track's ground positions are on both sides of the net. Airborne points project farther from the camera than they are,
+  // but a ball flying from one half to the other still changes sides in the projection.
+  crossesNet(tr, toCourt) {
+    let first = 0;
+    for (const q of tr.pts) {
+      const g = toCourt(q.x, q.y); if (!g || !(Math.abs(g[1]) < 60)) continue;
+      const cy = g[1]; if (Math.abs(cy) < 1.5) continue;
+      if (!first) first = Math.sign(cy); else if (Math.sign(cy) !== first) return true;
+    }
+    return false;
   }
   // recent speed of a track in pixels per second
   speed(tr) {
