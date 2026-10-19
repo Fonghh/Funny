@@ -490,6 +490,7 @@ function recalibrate() { endTap(); lastCourtT = -1e9; setCourt(null); setStatus(
 // the court in use, from line detection or from tapped corners. Also decides what the two ends are called.
 function setCourt(c) {
   court = c; roi = null;              // worked out on the next frame, at the frame's real size
+  if (c) { const q = hApply(c.m2i, 10, 11); c.wSign = Math.sign(hApply(c.i2m, q[0], q[1])[2]) || 1; }   // sign of a point on the court
   names = c ? endNames(c.m2i) : { near: "近端", far: "遠端" };
   if (judge) judge.names = names;
   if (c && match) { match.court = { m2i: c.m2i, i2m: c.i2m, template: c.template, corners: c.corners }; saveMatch(); }
@@ -717,7 +718,8 @@ function onFrame(t) {
 function step(t, cands) {
   tracker.update(t, cands);
   const w = proc.width, h = proc.height;
-  const toCourt = court ? (x, y) => hApply(court.i2m, x / w, y / h).slice(0, 2) : null;
+  // a point above the horizon has no place on the floor: its projection lands behind the camera
+  const toCourt = court ? (x, y) => { const g = hApply(court.i2m, x / w, y / h); return g[2] * court.wSign > 0 ? g.slice(0, 2) : null; } : null;
   for (const e of judge.step(t, tracker.main(), toCourt)) {
     dbg.events.push({ type: e.type, t: +(e.t ?? t).toFixed(2), court: e.court?.map((v) => +v.toFixed(1)), in: e.in, winner: e.winner });
     if (e.type === "start") {
