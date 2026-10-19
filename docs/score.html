@@ -77,6 +77,7 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
 .dl a { color: var(--cyan); }
 .viewer .start { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 16px; text-align: center; background: radial-gradient(ellipse at center, rgba(63,212,255,.10), transparent 70%); }
 .viewer .start p { margin: 0; color: var(--muted); font-size: 12px; max-width: 30ch; }
+.viewer .start .shrink { font-size: 12px; color: var(--ball); }
 .viewer .start .lens { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .viewer .start .lens select { min-height: 32px; }
 .viewer.tapping canvas { touch-action: none; cursor: crosshair; }
@@ -155,7 +156,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
 <div class="app">
   <header class="bar">
     <div class="brand"><b>PICKLE<i>/</i>SCORE</b><span>參考用</span></div>
-    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261017120328">賽後分析</a><a class="score" href="score.html?v=20261017120328" aria-current="page">即時計分</a></nav>
+    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261019100249">賽後分析</a><a class="score" href="score.html?v=20261019100249" aria-current="page">即時計分</a></nav>
   </header>
 
   <section class="stage" aria-label="鏡頭">
@@ -169,6 +170,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
         <button class="btn primary" id="camBtn" type="button">開啟鏡頭開始計分</button>
         <label class="btn" for="file">用錄好的影片測試</label>
         <input type="file" id="file" accept="video/*">
+        <a class="shrink" href="shrink.html?v=20261019100249">影片太大傳不出去？壓縮影片</a>
         <label class="lens">鏡頭<select id="lens"><option value="1">1x 一般</option><option value="0.5">0.5x 超廣角</option></select></label>
         <p><b>架設方式：</b>手機橫放，架在<b>底線正後方中央</b>，越高越好（約 2 公尺以上），拍到整面球場。</p>
         <p>從斜角或側面拍：開始後按「手動點四角」，在畫面上點出球場。</p>
@@ -236,7 +238,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     <h2 id="h-sum" class="sum-h">這場比賽已儲存</h2>
     <p class="sum-line" id="sumLine"></p>
     <div class="big">
-      <a class="btn primary" id="sumOpen" href="./?v=20261017120328">在賽後分析查看</a>
+      <a class="btn primary" id="sumOpen" href="./?v=20261019100249">在賽後分析查看</a>
       <button class="btn" id="sumShare" type="button">存到相簿</button>
     </div>
     <p class="sum-note" id="sumNote">影片存在這個網站裡，賽後分析頁的「我的比賽」可以直接打開。Safari 可能在網站 7 天沒打開後清掉這些資料，重要的比賽請按「存到相簿」。</p>
@@ -274,9 +276,9 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
   </section>
 </div>
 
-<script src="court.js?v=20261017120328"></script>
-<script src="ball.js?v=20261017120328"></script>
-<script src="match.js?v=20261017120328"></script>
+<script src="court.js?v=20261019100249"></script>
+<script src="ball.js?v=20261019100249"></script>
+<script src="match.js?v=20261019100249"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const cam = $("cam"), overlay = $("overlay"), octx = overlay.getContext("2d");

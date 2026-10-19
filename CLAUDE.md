@@ -7,6 +7,7 @@
 ## 網站
 - 賽後分析：https://fonghh.github.io/Funny/
 - 即時計分：https://fonghh.github.io/Funny/score.html
+- 壓縮影片：https://fonghh.github.io/Funny/shrink.html
 - 說明書：https://fonghh.github.io/Funny/manual.pdf
 - GitHub Pages 從 `claude/pickleball-pose` 分支（也是預設分支）的 `docs/` 資料夾發布，push 後約 1 分鐘上線。
 
@@ -15,6 +16,7 @@
   - `index.html`：賽後分析頁。是「頁面片段」（沒有 `<html>`/`<head>`），因為早期也發布成 Claude Artifact；`build_pages.py` 會包成完整網頁。
     `// PURE-START` 到 `// PURE-END` 之間是沒有 DOM 的純函式（追蹤、指標、球場辨識、建議姿勢），測試時用 `new Function` 抽出來在 Node 跑。
   - `score.html`：即時計分頁（完整網頁）。
+  - `shrink.html`：壓縮影片（640 寬、約 1.5Mbps，超過 24MB 自動分段），讓使用者把長影片傳給 Claude（App 附檔上限 30MB）。左上角印原始秒數。
   - `court.js`：球場白線辨識（地板顏色 → 白線遮罩 → 方向性 Hough → 消失點找邊線 → 套 20×44 呎球場模板 → homography）。
     **注意：`index.html` 的 PURE 區段裡內嵌了一份相同程式碼，兩邊要一起改。**
     只支援手機在底線後方拍；`plausibleCourt` 會丟掉不合理的套合（寧可問手動，也不要用錯的球場判斷）。
