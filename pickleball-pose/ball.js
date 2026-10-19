@@ -14,31 +14,42 @@ function isBallColour(r, g, b) {
 }
 
 // Ball candidates: small ball-coloured blobs that moved since the previous frame.
-// prevGray (Uint8Array or null) is updated in place for the next call. roi = [x0, y0, x1, y1] or null.
-function ballCandidates(rgba, w, h, prevGray, roi) {
-  const N = w * h, gray = new Uint8Array(N), col = new Uint8Array(N);
+// prevGray (Uint8Array or null) is the previous frame's gray image. roi = [x0, y0, x1, y1] or null.
+// stay (Uint8Array of w*h, kept by the caller) counts how long each pixel has been ball-coloured: yellow letters on the floor
+// or a sign never move, but a net or fence in front of the camera makes them shimmer as if they did.
+function ballCandidates(rgba, w, h, prevGray, roi, stay = null) {
+  const N = w * h, gray = new Uint8Array(N), col = new Uint8Array(N), vivid = new Uint8Array(N);
   const [rx0, ry0, rx1, ry1] = roi || [0, 0, w, h];
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x, p = i * 4, r = rgba[p], g = rgba[p + 1], b = rgba[p + 2];
     gray[i] = (r * 77 + g * 150 + b * 29) >> 8;
-    if (x >= rx0 && x < rx1 && y >= ry0 && y < ry1 && isBallColour(r, g, b)) col[i] = 1;
+    if (x >= rx0 && x < rx1 && y >= ry0 && y < ry1 && isBallColour(r, g, b)) {
+      col[i] = 1;
+      const mx = Math.max(r, g, b);
+      if (mx - Math.min(r, g, b) >= 0.5 * mx) vivid[i] = 1;
+    }
+    // about 250 for a pixel that is always yellow, 40 for one yellow a sixth of the time; a passing ball leaves 8-16
+    if (stay) stay[i] = stay[i] - (stay[i] >> 5) + (col[i] ? 8 : 0);
   }
   const out = [];
   if (prevGray) {
     const seen = new Uint8Array(N), stack = [];
     for (let i = 0; i < N; i++) {
       if (!col[i] || seen[i]) continue;
-      let n = 0, sx = 0, sy = 0, x0 = w, x1 = 0, y0 = h, y1 = 0, moved = false;
+      let n = 0, sx = 0, sy = 0, x0 = w, x1 = 0, y0 = h, y1 = 0, moved = false, bright = false, still = 0;
       stack.push(i); seen[i] = 1;
       while (stack.length) {
         const j = stack.pop(), x = j % w, y = (j / w) | 0;
         n++; sx += x; sy += y; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
         if (Math.abs(gray[j] - prevGray[j]) > 18) moved = true;
+        if (vivid[j]) bright = true;
+        if (stay) still += stay[j];
         if (n > 400) continue;
         for (const k of [j - 1, j + 1, j - w, j + w]) if (k >= 0 && k < N && col[k] && !seen[k]) { seen[k] = 1; stack.push(k); }
       }
       const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
-      if (moved && n >= 2 && n <= 180 && Math.max(bw, bh) <= 6 * Math.min(bw, bh)) out.push({ x: sx / n, y: sy / n, a: n });
+      // a ball has at least one strongly coloured pixel even when blurred; a light-green court seen through a net does not
+      if (moved && bright && n >= 2 && n <= 180 && Math.max(bw, bh) <= 6 * Math.min(bw, bh) && !(stay && still / n > 40)) out.push({ x: sx / n, y: sy / n, a: n });
     }
   }
   return { cands: out, gray };
@@ -67,12 +78,13 @@ class BallTracker {
     this.tracks = this.tracks.filter((tr) => !tr.dead || tr.pts.length >= 8);
     if (this.tracks.length > 60) this.tracks.splice(0, this.tracks.length - 60);
   }
-  // the ball: the live track that has moved the most
+  // the ball: the live track that moved the most over its last few points (something yellow that only shimmers in place,
+  // like letters on the floor seen through a net, can last much longer but goes nowhere)
   main() {
     let best = null, bs = 0;
     for (const tr of this.tracks) {
       if (tr.dead || tr.pts.length < 4) continue;
-      const a = tr.pts[0], b = tr.pts[tr.pts.length - 1], s = Math.hypot(b.x - a.x, b.y - a.y) + tr.pts.length;
+      const p = tr.pts, a = p[Math.max(0, p.length - 10)], b = p[p.length - 1], s = Math.hypot(b.x - a.x, b.y - a.y) + Math.min(p.length, 10);
       if (s > bs) { bs = s; best = tr; }
     }
     return best;

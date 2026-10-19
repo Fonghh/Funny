@@ -236,14 +236,17 @@ function fitCourt(mask, w, h, lines, feet, only = null) {
   return best;
 }
 // A fit seen from behind the baseline: the whole court lies in front of the camera, the near baseline is below the net
-// in the image, left stays left, and the near half sits roughly inside the frame. Anything else is a wrong fit.
-function plausibleCourt(m2i) {
+// in the image, left stays left, the near half sits roughly inside the frame, and the baseline is not a sliver next to the
+// near half's depth (a narrow strip of floor, like a gap seen through a fence, can fit the lines). Anything else is a wrong fit.
+function plausibleCourt(m2i, aspect = 16 / 9) {
   const P = [[0, -22], [20, -22], [0, 0], [20, 0], [0, 22], [20, 22]].map(([x, y]) => hApply(m2i, x, y));
   const ws = P.map((p) => p[2]);
   if (Math.min(...ws) <= 0 || Math.max(...ws) / Math.min(...ws) > 8) return false;
   const [, , nl, nr, bl, br] = P;
   if (bl[1] <= nl[1] || br[1] <= nr[1] || nr[0] <= nl[0] || br[0] <= bl[0]) return false;
-  return [nl, nr, bl, br].every(([x, y]) => x > -0.4 && x < 1.4 && y > -0.1 && y < 1.3);
+  if (![nl, nr, bl, br].every(([x, y]) => x > -0.4 && x < 1.4 && y > -0.1 && y < 1.3)) return false;
+  const len = (p, q) => Math.hypot((p[0] - q[0]) * aspect, p[1] - q[1]);
+  return len(bl, br) >= 0.5 * len([(bl[0] + br[0]) / 2, (bl[1] + br[1]) / 2], [(nl[0] + nr[0]) / 2, (nl[1] + nr[1]) / 2]);
 }
 // rgba: an ImageData-like buffer of the frame scaled to w x h; feet: [x, y] normalized (or null).
 // Returns homographies between normalized image coords and court feet, or null when no court is found.
@@ -256,7 +259,7 @@ function detectCourt(rgba, w, h, feet, only = null) {
   if (!fit || fit.hit < 40 || fit.hit < 1.5 * fit.miss) return null;
   const S = [[1 / w, 0, 0], [0, 1 / h, 0], [0, 0, 1]];   // pixels -> normalized
   const m2i = mul3(S, fit.H), i2m = hInvert(m2i);
-  if (!plausibleCourt(m2i)) return null;
+  if (!plausibleCourt(m2i, w / h)) return null;
   return { m2i, i2m, template: fit.template, score: fit.score, hit: fit.hit, miss: fit.miss };
 }
 function mul3(A, h) { // A (3x3 rows) * h (flat 9)

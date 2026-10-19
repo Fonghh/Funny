@@ -85,6 +85,8 @@ input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; poin
 .tapbar { position: relative; display: grid; gap: 8px; padding: 16px 8px 8px; margin-top: 4px; border: 1.5px dashed var(--warn); border-radius: 10px; background: rgba(255, 181, 71, .05); }
 .tapbar > .tag { position: absolute; top: -9px; left: 10px; padding: 0 6px; background: var(--bg); color: var(--warn); font-size: 12px; font-weight: 700; }
 .tapbar .msg { font-size: 13px; }
+.tapbar .mode { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.tapbar .mode select { flex: 1; min-height: 34px; }
 .tapbar .msg b { color: var(--warn); }
 .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .status { font-family: var(--mono); font-size: 11px; color: var(--muted); min-height: 16px; }
@@ -183,6 +185,11 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     </div>
     <div class="tapbar" id="tapBar" role="group" aria-labelledby="tapTag" hidden>
       <span class="tag" id="tapTag">✎ 手動點四角</span>
+      <label class="mode">點法<select id="tapMode">
+        <option value="corners">四個角都看得到</option>
+        <option value="left">右邊的角在畫面外：改點中線</option>
+        <option value="right">左邊的角在畫面外：改點中線</option>
+      </select></label>
       <div class="msg" id="tapMsg"></div>
       <div class="tools">
         <button class="btn primary" id="tapOk" type="button" disabled>完成</button>
@@ -434,8 +441,9 @@ $("pSkip").addEventListener("click", () => {
 });
 
 // ---------- video source: camera or a recorded file ----------
+let stay = null;          // how long each pixel has been ball-coloured (see ballCandidates)
 let running = false, tracker, judge, prevGray = null, court = null, lastCourtT = -1e9, roi = null, bouncesShown = [], wakeLock = null, fileMode = false;
-function resetPipeline() { tracker = new BallTracker(1); judge = new RallyJudge(); judge.names = names; prevGray = null; bouncesShown = []; }
+function resetPipeline() { tracker = new BallTracker(1); judge = new RallyJudge(); judge.names = names; prevGray = null; stay = null; bouncesShown = []; }
 $("camBtn").addEventListener("click", async () => {
   try {
     const { stream, note } = await openCamera($("lens").value === "0.5");
@@ -481,7 +489,7 @@ $("courtType").addEventListener("change", recalibrate);
 function recalibrate() { endTap(); lastCourtT = -1e9; setCourt(null); setStatus("校正球場中…"); }
 // the court in use, from line detection or from tapped corners. Also decides what the two ends are called.
 function setCourt(c) {
-  court = c; roi = c ? courtRoi(c, proc.width || 640, proc.height || 360) : null;
+  court = c; roi = null;              // worked out on the next frame, at the frame's real size
   names = c ? endNames(c.m2i) : { near: "近端", far: "遠端" };
   if (judge) judge.names = names;
   if (c && match) { match.court = { m2i: c.m2i, i2m: c.i2m, template: c.template, corners: c.corners }; saveMatch(); }
@@ -496,13 +504,23 @@ function endNames(m2i) {
 }
 
 // ---------- tapping the court's corners by hand (any camera angle) ----------
-// The four corners of one half: its baseline, then where the net line meets the two sidelines. That half becomes the near end.
-const TAP_FEET = [[0, 22], [20, 22], [20, 0], [0, 0]];
-const TAP_HINT = ["你這一側<b>底線的左角</b>", "同一條<b>底線的右角</b>", "球網正下方，<b>右邊邊線</b>的端點", "球網正下方，<b>左邊邊線</b>的端點"];
+// Four points of one half, that half becomes the near end. Normally its corners: the baseline, then where the net line meets
+// the two sidelines. When a corner is out of the picture (filmed from one side), half of that half instead: the baseline
+// corner and the baseline's middle, then where the centre line and a sideline meet the kitchen line.
+const TAP_SETS = {
+  corners: { feet: (k) => [[0, 22], [20, 22], [20, 0], [0, 0]],
+    hint: ["你這一側<b>底線的左角</b>", "同一條<b>底線的右角</b>", "球網正下方，<b>右邊邊線</b>的端點", "球網正下方，<b>左邊邊線</b>的端點"] },
+  left: { feet: (k) => [[0, 22], [10, 22], [10, k], [0, k]],
+    hint: ["你這一側<b>底線的左角</b>", "<b>底線中點</b>（中線碰到底線的地方）", "<b>中線碰到廚房線</b>的地方", "<b>廚房線的左端</b>（碰到左邊線的地方）"] },
+  right: { feet: (k) => [[10, 22], [20, 22], [20, k], [10, k]],
+    hint: ["<b>底線中點</b>（中線碰到底線的地方）", "你這一側<b>底線的右角</b>", "<b>廚房線的右端</b>（碰到右邊線的地方）", "<b>中線碰到廚房線</b>的地方"] },
+};
+const tapSet = () => TAP_SETS[$("tapMode").value] || TAP_SETS.corners;
 let tap = null;           // { pts: [[x, y] normalized], drag: index or -1, wasPlaying }
 function beginTap() {
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem("pp.corners") || "null"); } catch {}
+  if (saved && !Array.isArray(saved)) { if (TAP_SETS[saved.mode]) $("tapMode").value = saved.mode; saved = saved.pts; }
   tap = { pts: Array.isArray(saved) && saved.length === 4 ? saved : [], drag: -1, wasPlaying: fileMode && !cam.paused };
   if (fileMode) cam.pause();
   $("viewer").classList.add("tapping"); $("tapBar").hidden = false; updateTap();
@@ -512,14 +530,14 @@ function endTap() {
   if (tap.wasPlaying) cam.play().catch(() => {});
   tap = null; $("viewer").classList.remove("tapping"); $("tapBar").hidden = true; draw();
 }
-// the homography from the tapped points, with the net corners swapped if they were tapped in the other order
+// the homography from the tapped points, with the last two swapped if they were tapped in the other order
 function tapCourt(pts) {
   if (pts.length < 4) return null;
   const [a, b, c, d] = pts, cross = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
   const meets = (p1, p2, q1, q2) => cross(p1, p2, q1) * cross(p1, p2, q2) < 0 && cross(q1, q2, p1) * cross(q1, q2, p2) < 0;
   const img = meets(a, d, b, c) ? [a, b, d, c] : [a, b, c, d];
   if (meets(img[0], img[1], img[2], img[3]) || quadArea(img) < 0.002) return null;
-  const m2i = homography(TAP_FEET, img); if (!m2i) return null;
+  const m2i = homography(tapSet().feet(KITCHEN[$("courtType").value] || 7), img); if (!m2i) return null;
   const i2m = hInvert(m2i); if (!i2m) return null;
   if ([[0, -22], [20, -22], [10, 11]].some(([x, y]) => hApply(m2i, x, y)[2] <= 0)) return null;
   return { m2i, i2m, template: $("courtType").value, manual: true, corners: img };
@@ -527,7 +545,7 @@ function tapCourt(pts) {
 function updateTap() {
   const n = tap.pts.length, ok = !!tapCourt(tap.pts);
   $("tapOk").disabled = !ok;
-  $("tapMsg").innerHTML = n < 4 ? `點第 ${n + 1} 點（共 4 點）：${TAP_HINT[n]}`
+  $("tapMsg").innerHTML = n < 4 ? `點第 ${n + 1} 點（共 4 點）：${tapSet().hint[n]}`
     : ok ? "點好了。可以拖動圓點微調，橘線對準白線後按「完成」。" : "這 4 點圍不成球場，請按「重點」重新點。";
   draw();
 }
@@ -550,10 +568,11 @@ overlay.addEventListener("pointermove", (e) => {
 overlay.addEventListener("pointerup", () => { if (tap) tap.drag = -1; });
 $("tapBtn").addEventListener("click", () => (tap ? endTap() : beginTap()));
 $("tapRedo").addEventListener("click", () => { tap.pts = []; updateTap(); });
+$("tapMode").addEventListener("change", () => { if (tap) { tap.pts = []; updateTap(); } });
 $("tapCancel").addEventListener("click", endTap);
 $("tapOk").addEventListener("click", () => {
   const c = tapCourt(tap.pts); if (!c) return;
-  try { localStorage.setItem("pp.corners", JSON.stringify(tap.pts)); } catch {}
+  try { localStorage.setItem("pp.corners", JSON.stringify({ mode: $("tapMode").value, pts: tap.pts })); } catch {}
   endTap(); setCourt(c); lastCourtT = Infinity;
   dbg.courts.push({ t: lastT, ok: true, manual: true });
   setStatus(`已用手動四角設定球場（${names.near}是你點的那半場）。要改回自動辨識就按「重新校正球場」。`);
@@ -688,7 +707,9 @@ function onFrame(t) {
     if (c) { setCourt(c); setStatus(camNote + "已辨識球場（青色虛線）。看到球在動就開始判斷；線沒對準就按「重新校正球場」。"); }
     else if (!court) setStatus(camNote + "還沒找到球場白線：手機架高、橫放，整面場入鏡後會自動辨識。斜角或側面拍請按「手動點四角」。");
   }
-  const { cands, gray } = ballCandidates(rgba, w, h, prevGray, roi);
+  if (!stay || stay.length !== w * h) stay = new Uint8Array(w * h);
+  if (court && !roi) roi = courtRoi(court, w, h);
+  const { cands, gray } = ballCandidates(rgba, w, h, prevGray, roi, stay);
   prevGray = gray; dbg.cands += cands.length;
   step(t, cands);
   diag(cands.length, performance.now() - tStart);

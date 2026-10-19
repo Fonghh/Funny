@@ -46,6 +46,7 @@ git add -A pickleball-pose docs && git commit && git push -u origin claude/pickl
 - 這個容器連不到 fonghh.github.io 和 jsDelivr；部署狀態用 GitHub Actions 的 `pages build and deployment` 看。
 - `node pickleball-pose/tests/sim_rally.mjs`：模擬比賽（一般來回、交球、發球直接得分、打出界、回球掛網），改 `RallyJudge` 後先跑這個。
 - 頁面上有除錯用的 `window.__summary()`、`window.__score()`、`window.__dbg`、`window.__match()`。
+- 用真實影片調整判斷：在頁面裡攔截 `step(t, cands)` 把每張的候選點存下來，之後在 Node 用 `BallTracker`/`RallyJudge` 重播，不用每次重跑瀏覽器。注意 `start()` 會清掉球場，要等 `running` 之後再設。
 - 計分頁設定裡有「診斷資訊」開關，會在畫面下方顯示每秒張數、處理時間、像球的點數、球場是否辨識、軌跡與狀態；請使用者在真機截圖回報。
 - 所有測試都是電腦版瀏覽器模擬，回報時要講清楚「還沒在 iPhone 上驗證」。
 
