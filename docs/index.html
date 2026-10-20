@@ -221,7 +221,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     <button class="btn icon" id="gear" type="button" aria-expanded="false" aria-controls="settings" aria-label="分析設定">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
     </button>
-    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261019155329" aria-current="page">賽後分析</a><a class="score" href="score.html?v=20261019155329">即時計分</a></nav>
+    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261020032712" aria-current="page">賽後分析</a><a class="score" href="score.html?v=20261020032712">即時計分</a></nav>
   </header>
 
   <div class="settings" id="settings" hidden>
@@ -331,7 +331,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
   </section>
 </div>
 
-<script src="match.js?v=20261019155329"></script>
+<script src="match.js?v=20261020032712"></script>
 <script type="module">
 import { FilesetResolver, PoseLandmarker } from "./mp/vision_bundle.mjs";
 
@@ -589,9 +589,11 @@ function courtMask(rgba, w, h, feet) {
   const floorLum = 0.299 * F[0] + 0.587 * F[1] + 0.114 * F[2];
   const ok = new Uint8Array(N);
   for (let i = 0; i < N; i++) ok[i] = lum[i] > floorLum + 30 && sat[i] < 0.4 ? 1 : 0;
-  // floor region: per row, the span between the outermost floor-coloured pixels, kept only for rows that are mostly floor
+  // floor region: per row, the span between the outermost floor-coloured pixels, kept only for rows that are mostly floor.
+  // The court's outer lines run along the edge of that span (a blue court inside a red surround), so it is widened a little
+  // and the rows just above and below it are included too.
   const Fs = F[0] + F[1] + F[2] + 1, Fc = [F[0] / Fs, F[1] / Fs];
-  const inFloor = new Uint8Array(N);
+  const inFloor = new Uint8Array(N), sx0 = new Int32Array(h).fill(-1), sx1 = new Int32Array(h).fill(-1);
   for (let y = Math.floor(h * 0.2); y < h; y++) {
     let x0 = -1, x1 = -1, n = 0;
     for (let x = 0; x < w; x++) {
@@ -600,8 +602,13 @@ function courtMask(rgba, w, h, feet) {
       // same hue as the floor, ignoring how brightly it is lit
       if (Math.abs(r / sum - Fc[0]) + Math.abs(g / sum - Fc[1]) < 0.08 && L > floorLum * 0.45 && L < floorLum * 1.7) { n++; if (x0 < 0) x0 = x; x1 = x; }
     }
-    if (n < w * 0.25) continue;
-    for (let x = x0; x <= x1; x++) inFloor[y * w + x] = 1;
+    if (n >= w * 0.25) { sx0[y] = x0; sx1[y] = x1; }
+  }
+  const pad = Math.max(3, Math.round(w / 80));
+  for (let y = 0; y < h; y++) {
+    let x0 = w, x1 = -1;
+    for (let yy = Math.max(0, y - pad); yy <= Math.min(h - 1, y + pad); yy++) if (sx0[yy] >= 0) { x0 = Math.min(x0, sx0[yy]); x1 = Math.max(x1, sx1[yy]); }
+    for (let x = Math.max(0, x0 - pad); x <= Math.min(w - 1, x1 + pad); x++) inFloor[y * w + x] = 1;
   }
   const IL = new Float64Array((w + 1) * (h + 1));
   for (let y = 0; y < h; y++) { let s = 0; for (let x = 0; x < w; x++) { s += lum[y * w + x]; IL[(y + 1) * (w + 1) + x + 1] = IL[y * (w + 1) + x + 1] + s; } }
@@ -712,7 +719,7 @@ const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], 
 function meet(a, b) { const p = cross3(a, b); return Math.abs(p[2]) < 1e-9 ? null : [p[0] / p[2], p[1] / p[2]]; }
 
 // Try pairs of across-court lines x pairs of along-court lines against each template; keep the best-supported court.
-function fitCourt(mask, w, h, lines, feet) {
+function fitCourt(mask, w, h, lines, feet, only = null) {
   const dm = dilate(mask, w, h, Math.max(1, Math.round(w / 300)));
   const across = [], along = [];
   for (const L of lines) {
@@ -725,16 +732,40 @@ function fitCourt(mask, w, h, lines, feet) {
   // strongest candidates of each kind, then ordered far-to-near and left-to-right
   const A = across.sort((a, b) => b.votes - a.votes).slice(0, 8).sort((a, b) => atX(a, w / 2) - atX(b, w / 2));
   const rays = alongRays(mask, w, h, along);
-  const B = (rays.length >= 2 ? rays : along.sort((a, b) => b.votes - a.votes).slice(0, 8)).sort((a, b) => atY(a, h) - atY(b, h));
-  let best = null;
-  // score only the camera's half of the court: the far half is small and cluttered by the net and players
-  const samples = (tpl) => tpl.lines.filter((l) => l[1] >= 0 || l[3] >= 0).map(([x0, y0, x1, y1]) => [x0, Math.max(0, y0), x1, Math.max(0, y1)]).flatMap(([x0, y0, x1, y1]) => {
-    const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0)); const pts = [];
+  // rays through the vanishing point first, then the strongest other lines (a steep view can leave a sideline off the rays)
+  const B = [...rays, ...along.sort((a, b) => b.votes - a.votes)].slice(0, 8).sort((a, b) => atY(a, h) - atY(b, h));
+  // score the whole court: scoring only the camera's half lets a fit stretch that half up to the far kitchen line, since the
+  // real sidelines keep going (the far half then lands in the crowd and misses). The far half is small, so it weighs little.
+  // Two passes: every candidate with a point per foot of line, then the best few with a point every ~2 pixels of the image,
+  // so a bigger court has more to match (sampled per foot, a court fitted too small packs its points onto a few crisp lines).
+  const perFoot = (tpl) => tpl.lines.flatMap(([x0, y0, x1, y1]) => {
+    const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0)), pts = [];
     for (let k = 0; k <= n; k++) pts.push([x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n]);
     return pts;
   });
+  const perPixel = (tpl, H) => tpl.lines.flatMap(([x0, y0, x1, y1]) => {
+    const a = hApply(H, x0, y0), b = hApply(H, x1, y1);
+    const n = a[2] > 0 && b[2] > 0 ? Math.min(400, Math.max(4, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 2))) : Math.ceil(Math.hypot(x1 - x0, y1 - y0));
+    const pts = [];
+    for (let k = 0; k <= n; k++) pts.push([x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n]);
+    return pts;
+  });
+  // distinct supporting pixels, so a court squashed onto one line cannot score
+  const support = (H, pts) => {
+    let hit = 0, miss = 0; const seen = new Set();
+    for (const [x, y] of pts) {
+      const q = hApply(H, x, y); if (q[2] <= 0) { miss++; continue; }
+      const px = Math.round(q[0]), py = Math.round(q[1]);
+      if (px < 0 || py < h * 0.3 || px >= w || py >= h) continue;
+      const key = py * w + px; if (seen.has(key)) continue; seen.add(key);
+      dm[key] ? hit++ : miss++;
+    }
+    return { hit, miss, score: hit - 0.6 * miss };
+  };
+  const cands = [];
   for (const [name, tpl] of Object.entries(COURT_TEMPLATES)) {
-    const S = samples(tpl), crossNear = tpl.cross.filter((y) => y > 0);
+    if (only && name !== only) continue;
+    const pts = perFoot(tpl), crossNear = tpl.cross.filter((y) => y > 0);
     for (let i = 0; i < A.length; i++) for (let j = i + 1; j < A.length; j++)
       for (let k = 0; k < B.length; k++) for (let m = k + 1; m < B.length; m++) {
         const p = [meet(A[i].l, B[k].l), meet(A[i].l, B[m].l), meet(A[j].l, B[m].l), meet(A[j].l, B[k].l)];
@@ -746,24 +777,23 @@ function fitCourt(mask, w, h, lines, feet) {
             const Y0 = crossNear[ya], Y1 = crossNear[yb], X0 = tpl.sides[xa], X1 = tpl.sides[xb];
             const H = homography([[X0, Y0], [X1, Y0], [X1, Y1], [X0, Y1]], p);
             if (!H) continue;
+            // the near baseline spans a good part of the frame; a court squeezed onto a pair of close lines does not
+            const ba = hApply(H, 0, 22), bb = hApply(H, 20, 22);
+            if (ba[2] <= 0 || bb[2] <= 0 || Math.hypot(bb[0] - ba[0], bb[1] - ba[1]) < 0.2 * w) continue;
             if (feet) {   // the player has to be standing on this court
               const Hi = hInvert(H); if (!Hi) continue;
               const f = hApply(Hi, feet[0], feet[1]);
               if (!(f[0] > -0.5 && f[0] < 20.5 && f[1] > -1 && f[1] < 24)) continue;
             }
-            // count distinct supporting pixels, so a court squashed onto one line cannot score
-            let hit = 0, miss = 0; const seen = new Set();
-            for (const [x, y] of S) {
-              const q = hApply(H, x, y); if (q[2] <= 0) { miss++; continue; }
-              const px = Math.round(q[0]), py = Math.round(q[1]);
-              if (px < 0 || py < h * 0.3 || px >= w || py >= h) continue;
-              const key = py * w + px; if (seen.has(key)) continue; seen.add(key);
-              dm[key] ? hit++ : miss++;
-            }
-            const score = hit - 0.6 * miss;
-            if (!best || score > best.score) best = { score, hit, miss, H, template: name };
+            cands.push({ ...support(H, pts), H, template: name, tpl });
           }
       }
+  }
+  cands.sort((a, b) => b.score - a.score);
+  let best = null;
+  for (const c of cands.slice(0, 20)) {
+    const r = support(c.H, perPixel(c.tpl, c.H));
+    if (!best || r.score > best.score) best = { ...r, H: c.H, template: c.template };
   }
   return best;
 }
@@ -782,16 +812,21 @@ function plausibleCourt(m2i, aspect = 16 / 9) {
 }
 // rgba: an ImageData-like buffer of the frame scaled to w x h; feet: [x, y] normalized (or null).
 // Returns homographies between normalized image coords and court feet, or null when no court is found.
-function detectCourt(rgba, w, h, feet) {
+function detectCourt(rgba, w, h, feet, only = null) {
   const fp = feet ? [feet[0] * w, feet[1] * h] : null;
   const mask = courtMask(rgba, w, h, fp);
   const lines = houghLines(mask, w, h);
-  const fit = fitCourt(mask, w, h, lines, fp);
-  if (!fit || fit.hit < 40 || fit.hit < 1.5 * fit.miss) return null;
   const S = [[1 / w, 0, 0], [0, 1 / h, 0], [0, 0, 1]];   // pixels -> normalized
-  const m2i = mul3(S, fit.H), i2m = hInvert(m2i);
-  if (!plausibleCourt(m2i, w / h)) return null;
-  return { m2i, i2m, template: fit.template, score: fit.score, hit: fit.hit, miss: fit.miss };
+  // each line layout on its own: the one with more lines can score higher with a wrong fit and must not hide the other
+  let best = null;
+  for (const name of only ? [only] : Object.keys(COURT_TEMPLATES)) {
+    const fit = fitCourt(mask, w, h, lines, fp, name);
+    if (!fit || fit.hit < 40 || fit.hit < 1.5 * fit.miss) continue;
+    const m2i = mul3(S, fit.H);
+    if (!plausibleCourt(m2i, w / h) || (best && best.score >= fit.score)) continue;
+    best = { m2i, i2m: hInvert(m2i), template: fit.template, score: fit.score, hit: fit.hit, miss: fit.miss };
+  }
+  return best;
 }
 function mul3(A, h) { // A (3x3 rows) * h (flat 9)
   const B = [[h[0], h[1], h[2]], [h[3], h[4], h[5]], [h[6], h[7], h[8]]], out = [];
