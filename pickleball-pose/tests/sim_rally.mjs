@@ -1,4 +1,5 @@
-// Synthetic match through BallTracker + RallyJudge: rallies, handovers, an ace, a long ball, a return into the net.
+// Synthetic match through BallTracker + RallyJudge: rallies, handovers, an ace, a long ball, a return into the net,
+// a deep ball bouncing twice, a low volley followed by a long ball.
 // Camera behind the near baseline, 10 ft up. Run: node pickleball-pose/tests/sim_rally.mjs (each line shows what was decided and [what happened]).
 import fs from 'fs';
 const B = new Function(fs.readFileSync(new URL('../ball.js', import.meta.url), 'utf8') + '; return { BallTracker, RallyJudge };')();
@@ -32,6 +33,10 @@ wait(12);
 play('return hit long -> far wins', [5, -23, 2.5], [[[15, 14, 0], 1.1, 6], [[15, 19, 2], 0.5, 2], [[10, -25, 0], 1.3, 8], [[10, -30, 0], 0.5, 2]]);
 wait(12);
 play('return into the net -> near wins', [6, 23, 2.5], [[[15, -14, 0], 1.1, 6], [[15, -19, 1.5], 0.5, 2], [[13, -1, 2], 0.5, 1], [[12.5, -0.5, 0], 0.4, 0.3]]);
+wait(12);
+play('deep ball, near misses (2nd bounce behind baseline) -> far wins', [5, -23, 2.5], [[[12, 16, 0], 1.2, 7], [[13, 24, 0], 0.6, 2.5], [[13, 27, 0.3], 0.4, 0.5]]);
+wait(12);
+play('volley low over the net, then long -> far wins', [6, 23, 2.5], [[[15, -14, 0], 1.1, 6], [[15, -19, 1.5], 0.5, 2], [[11, 8, 0], 1.0, 4], [[11, 3, 1], 0.4, 1.5], [[10, -26, 0], 1.2, 9], [[10, -30, 0], 0.4, 1.5]]);
 wait(6);
 const end = T;
 const tr = new B.BallTracker(1), j = new B.RallyJudge();

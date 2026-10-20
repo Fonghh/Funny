@@ -98,7 +98,9 @@ class BallTracker {
 //  - in a real rally the ball keeps crossing the net every second or two. A ball that crosses only once is a serve that was not
 //    returned only if it came a good while after the previous rally (players get the ball back and get ready first) and was
 //    struck from deep in the court; otherwise the ball was just handed over to the other side, and nothing is reported.
-//  - the first bounce after the last crossing decides. In on side X: X failed to return it, so the other side wins.
+//  - the first bounce after the last crossing decides, unless it looks like a hit low over the net (the ball then climbs
+//    higher than it fell, which a bounce never does) and another bounce follows. In on side X: X failed to return it, so the
+//    other side wins.
 //    Out on side X's end: the other side hit it out, so X wins. A net ball drops on the hitter's side and counts as in there.
 class RallyJudge {
   constructor({ endAfter = 2, cooldown = 1.5, minRally = 1.5, minSpeed = 40, maxRally = 90, returnWindow = 4, serveQuiet = 8, serveDepth = 10 } = {}) {
@@ -143,6 +145,15 @@ class RallyJudge {
     const noReturn = toCourt && this.crossings.length && t - this.crossings[this.crossings.length - 1] > this.returnWindow;
     if (noReturn || t - this.lastSeen > this.endAfter || t - this.startedAt > this.maxRally) {
       this.state = "idle"; this.endedAt = t;
+      // a ball that lands out often flies into the crowd and is lost right after its bounce, before four more points are seen:
+      // look over the last second again, needing only two points after a low point
+      const p = this.path;
+      for (let i = p.length - 3; i >= 0 && p[i].t > t - this.endAfter - 1.5; i--) {
+        if (this.bounces.some((q) => Math.abs(q.t - p[i].t) < 0.15)) continue;
+        const b = this.bounceAt(i, Math.min(4, p.length - 1 - i), toCourt);
+        if (b) { this.bounces.push(b); events.push({ type: "bounce", ...b }); }
+      }
+      this.bounces.sort((a, b) => a.t - b.t);
       if (toCourt) {
         if (this.crossings.length >= 2 || this.servedOnce()) { events.push({ type: "end", t, ...this.outcome() }); this.lastRally = this.crossings[this.crossings.length - 1]; }
         else events.push({ type: "cancel", t, why: "handover" });
@@ -184,14 +195,16 @@ class RallyJudge {
     return dt > 1e-3 ? len / dt : 0;
   }
   // a low point (largest image y) four samples back, standing out from both sides
-  findBounce(toCourt) {
+  findBounce(toCourt) { return this.bounceAt(this.path.length - 5, 4, toCourt); }
+  // the path point i as a bounce, judged on 4 points before it and `after` points after it
+  bounceAt(i, after, toCourt) {
     const p = this.path, n = p.length, k = 4;
-    if (n < 2 * k + 1) return null;
-    const i = n - 1 - k, c = p[i];
-    for (let j = i - k; j <= i + k; j++) if (j !== i && p[j].y > c.y) return null;
+    if (i < k || i + after >= n) return null;
+    const c = p[i];
+    for (let j = i - k; j <= i + after; j++) if (j !== i && p[j].y > c.y) return null;
     const rise = (a, b) => Math.max(...p.slice(a, b).map((q) => c.y - q.y));
-    if (rise(i - k, i) < 3 || rise(i + 1, i + k + 1) < 3) return null;
-    if (this.bounces.length && c.t - this.bounces[this.bounces.length - 1].t < 0.15) return null;
+    if (rise(i - k, i) < 3 || rise(i + 1, i + after + 1) < 3) return null;
+    if (this.bounces.some((q) => Math.abs(c.t - q.t) < 0.15)) return null;
     const g = toCourt ? toCourt(c.x, c.y) : null;
     if (!g) return { t: c.t, x: c.x, y: c.y, court: null };
     const [cx, cy] = g;
@@ -199,9 +212,18 @@ class RallyJudge {
     const margin = 0.3, inside = cx >= -margin && cx <= 20 + margin && Math.abs(cy) <= 22 + margin;
     return { t: c.t, x: c.x, y: c.y, court: [cx, cy], side: cy >= 0 ? "near" : "far", in: inside };
   }
+  // a low point the ball leaves climbing higher than it came down: a paddle sent it up again, a bounce would lose height
+  looksLikeHit(b, next) {
+    const ys = (t0, t1) => this.path.filter((q) => q.t > t0 && q.t < t1).map((q) => q.y);
+    const before = ys(b.t - 0.7, b.t), after = ys(b.t, Math.min(next, b.t + 0.7));
+    if (!before.length || !after.length) return false;
+    return b.y - Math.min(...after) > 1.1 * (b.y - Math.min(...before));
+  }
   outcome() {
     const lastCross = this.crossings.length ? this.crossings[this.crossings.length - 1] : -1e9;
-    const b = this.bounces.find((q) => q.court && q.t >= lastCross) || [...this.bounces].reverse().find((q) => q.court);
+    const after = this.bounces.filter((q) => q.court && q.t >= lastCross);
+    let b = after.length ? after[0] : [...this.bounces].reverse().find((q) => q.court);
+    if (after.length >= 2 && after[1].t - after[0].t < 1.5 && this.looksLikeHit(after[0], after[1].t)) b = after[1];
     if (!b) return { winner: null, reason: "沒看清楚球的落點" };
     const other = b.side === "near" ? "far" : "near", where = this.names[b.side];
     return b.in
