@@ -260,6 +260,10 @@ function fitCourt(mask, w, h, lines, feet, only = null) {
   let best = null;
   for (const c of cands.slice(0, 20)) {
     const r = support(c.H, perPixel(c.tpl, c.H));
+    // filmed from behind the baseline, the court being played is near the middle of the picture; in a hall with courts side
+    // by side, a fit slid onto the next court's lines (when a player hides a sideline) sits off to one side
+    const ba = hApply(c.H, 0, 22), bb = hApply(c.H, 20, 22);
+    r.score *= 1 - Math.abs((ba[0] + bb[0]) / 2 / w - 0.5);
     if (!best || r.score > best.score) best = { ...r, H: c.H, template: c.template };
   }
   return best;

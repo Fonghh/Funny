@@ -221,7 +221,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     <button class="btn icon" id="gear" type="button" aria-expanded="false" aria-controls="settings" aria-label="分析設定">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
     </button>
-    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261020034317" aria-current="page">賽後分析</a><a class="score" href="score.html?v=20261020034317">即時計分</a></nav>
+    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261027234616" aria-current="page">賽後分析</a><a class="score" href="score.html?v=20261027234616">即時計分</a></nav>
   </header>
 
   <div class="settings" id="settings" hidden>
@@ -331,7 +331,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
   </section>
 </div>
 
-<script src="match.js?v=20261020034317"></script>
+<script src="match.js?v=20261027234616"></script>
 <script type="module">
 import { FilesetResolver, PoseLandmarker } from "./mp/vision_bundle.mjs";
 
@@ -793,6 +793,10 @@ function fitCourt(mask, w, h, lines, feet, only = null) {
   let best = null;
   for (const c of cands.slice(0, 20)) {
     const r = support(c.H, perPixel(c.tpl, c.H));
+    // filmed from behind the baseline, the court being played is near the middle of the picture; in a hall with courts side
+    // by side, a fit slid onto the next court's lines (when a player hides a sideline) sits off to one side
+    const ba = hApply(c.H, 0, 22), bb = hApply(c.H, 20, 22);
+    r.score *= 1 - Math.abs((ba[0] + bb[0]) / 2 / w - 0.5);
     if (!best || r.score > best.score) best = { ...r, H: c.H, template: c.template };
   }
   return best;

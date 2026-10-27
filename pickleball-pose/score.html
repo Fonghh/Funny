@@ -487,9 +487,26 @@ $("stopBtn").addEventListener("click", () => { clearProposal(); const m = finish
 $("calBtn").addEventListener("click", recalibrate);
 $("courtType").addEventListener("change", recalibrate);
 function recalibrate() { endTap(); lastCourtT = -1e9; setCourt(null); setStatus("校正球場中…"); }
+// The phone does not move, so the court should not either; but one detection can slip onto the next court's lines in a hall
+// with several courts side by side, or miss lines hidden by players. The last few detections vote: the court most of them
+// agree with is used, and it is only replaced by one with more votes.
+let courtFits = [];
+function sameCourt(a, b) {
+  if (a.template !== b.template) return false;
+  return [[0, 0], [20, 0], [0, 22], [20, 22]].every(([x, y]) => { const p = hApply(a.m2i, x, y), q = hApply(b.m2i, x, y); return Math.hypot(p[0] - q[0], p[1] - q[1]) < 0.03; });
+}
+function votedCourt() {
+  const votes = (c) => courtFits.filter((f) => sameCourt(c, f)).length;
+  let best = null, bn = 0;
+  for (const c of courtFits) { const n = votes(c); if (n > bn || (n === bn && c.score > best.score)) { bn = n; best = c; } }
+  if (!best) return null;
+  const cur = court && !court.manual ? votes(court) : 0;
+  return cur && (sameCourt(court, best) || bn <= cur) ? { court, votes: cur } : { court: best, votes: bn };
+}
 // the court in use, from line detection or from tapped corners. Also decides what the two ends are called.
 function setCourt(c) {
   court = c; roi = null;              // worked out on the next frame, at the frame's real size
+  if (!c) courtFits = [];
   if (c) { const q = hApply(c.m2i, 10, 11); c.wSign = Math.sign(hApply(c.i2m, q[0], q[1])[2]) || 1; }   // sign of a point on the court
   names = c ? endNames(c.m2i) : { near: "近端", far: "遠端" };
   if (judge) judge.names = names;
@@ -700,13 +717,17 @@ function onFrame(t) {
   if (proc.width !== w || proc.height !== h) { proc.width = w; proc.height = h; prevGray = null; }
   pctx.drawImage(cam, 0, 0, w, h);
   const rgba = pctx.getImageData(0, 0, w, h).data;
-  // court: at the start, when asked, and every 10 s between rallies (it takes a few hundred ms)
-  if (!court?.manual && !tap && (!court ? t - lastCourtT > 1 : (judge.state === "idle" && t - lastCourtT > 10))) {
+  // court: every second until three fits are in, then every 10 s between rallies (each takes a few hundred ms)
+  if (!court?.manual && !tap && (courtFits.length < 3 ? t - lastCourtT > 1 : (judge.state === "idle" && t - lastCourtT > 10))) {
     lastCourtT = t;
     const c = detectCourt(rgba, w, h, null, $("courtType").value);
     dbg.courts.push({ t: +t.toFixed(2), ok: !!c, tpl: c?.template, hit: c?.hit, miss: c?.miss });
-    if (c) { setCourt(c); setStatus(camNote + "已辨識球場（青色虛線）。看到球在動就開始判斷；線沒對準就按「重新校正球場」。"); }
-    else if (!court) setStatus(camNote + "還沒找到球場白線：手機架高、橫放，整面場入鏡後會自動辨識。斜角或側面拍請按「手動點四角」。");
+    if (c) { courtFits.push(c); if (courtFits.length > 8) courtFits.shift(); }
+    const v = votedCourt();
+    if (v) {
+      setStatus(camNote + `已辨識球場（青色虛線，最近 ${courtFits.length} 次有 ${v.votes} 次一致）。線沒對準就按「重新校正球場」或「手動點四角」。`);
+      if (v.court !== court) setCourt(v.court);
+    } else if (!court) setStatus(camNote + "還沒找到球場白線：手機架高、橫放，整面場入鏡後會自動辨識。斜角或側面拍請按「手動點四角」。");
   }
   if (!stay || stay.length !== w * h) stay = new Uint8Array(w * h);
   if (court && !roi) roi = courtRoi(court, w, h);

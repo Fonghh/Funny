@@ -158,7 +158,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
 <div class="app">
   <header class="bar">
     <div class="brand"><b>PICKLE<i>/</i>SCORE</b><span>參考用</span></div>
-    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261020034317">賽後分析</a><a class="score" href="score.html?v=20261020034317" aria-current="page">即時計分</a></nav>
+    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261027234616">賽後分析</a><a class="score" href="score.html?v=20261027234616" aria-current="page">即時計分</a></nav>
   </header>
 
   <section class="stage" aria-label="鏡頭">
@@ -172,7 +172,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
         <button class="btn primary" id="camBtn" type="button">開啟鏡頭開始計分</button>
         <label class="btn" for="file">用錄好的影片測試</label>
         <input type="file" id="file" accept="video/*">
-        <a class="shrink" href="shrink.html?v=20261020034317">影片太大傳不出去？壓縮影片</a>
+        <a class="shrink" href="shrink.html?v=20261027234616">影片太大傳不出去？壓縮影片</a>
         <label class="lens">鏡頭<select id="lens"><option value="1">1x 一般</option><option value="0.5">0.5x 超廣角</option></select></label>
         <p><b>架設方式：</b>手機橫放，架在<b>底線正後方中央</b>，越高越好（約 2 公尺以上），拍到整面球場。</p>
         <p>從斜角或側面拍：開始後按「手動點四角」，在畫面上點出球場。</p>
@@ -245,7 +245,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     <h2 id="h-sum" class="sum-h">這場比賽已儲存</h2>
     <p class="sum-line" id="sumLine"></p>
     <div class="big">
-      <a class="btn primary" id="sumOpen" href="./?v=20261020034317">在賽後分析查看</a>
+      <a class="btn primary" id="sumOpen" href="./?v=20261027234616">在賽後分析查看</a>
       <button class="btn" id="sumShare" type="button">存到相簿</button>
     </div>
     <p class="sum-note" id="sumNote">影片存在這個網站裡，賽後分析頁的「我的比賽」可以直接打開。Safari 可能在網站 7 天沒打開後清掉這些資料，重要的比賽請按「存到相簿」。</p>
@@ -283,9 +283,9 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
   </section>
 </div>
 
-<script src="court.js?v=20261020034317"></script>
-<script src="ball.js?v=20261020034317"></script>
-<script src="match.js?v=20261020034317"></script>
+<script src="court.js?v=20261027234616"></script>
+<script src="ball.js?v=20261027234616"></script>
+<script src="match.js?v=20261027234616"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const cam = $("cam"), overlay = $("overlay"), octx = overlay.getContext("2d");
@@ -487,9 +487,26 @@ $("stopBtn").addEventListener("click", () => { clearProposal(); const m = finish
 $("calBtn").addEventListener("click", recalibrate);
 $("courtType").addEventListener("change", recalibrate);
 function recalibrate() { endTap(); lastCourtT = -1e9; setCourt(null); setStatus("校正球場中…"); }
+// The phone does not move, so the court should not either; but one detection can slip onto the next court's lines in a hall
+// with several courts side by side, or miss lines hidden by players. The last few detections vote: the court most of them
+// agree with is used, and it is only replaced by one with more votes.
+let courtFits = [];
+function sameCourt(a, b) {
+  if (a.template !== b.template) return false;
+  return [[0, 0], [20, 0], [0, 22], [20, 22]].every(([x, y]) => { const p = hApply(a.m2i, x, y), q = hApply(b.m2i, x, y); return Math.hypot(p[0] - q[0], p[1] - q[1]) < 0.03; });
+}
+function votedCourt() {
+  const votes = (c) => courtFits.filter((f) => sameCourt(c, f)).length;
+  let best = null, bn = 0;
+  for (const c of courtFits) { const n = votes(c); if (n > bn || (n === bn && c.score > best.score)) { bn = n; best = c; } }
+  if (!best) return null;
+  const cur = court && !court.manual ? votes(court) : 0;
+  return cur && (sameCourt(court, best) || bn <= cur) ? { court, votes: cur } : { court: best, votes: bn };
+}
 // the court in use, from line detection or from tapped corners. Also decides what the two ends are called.
 function setCourt(c) {
   court = c; roi = null;              // worked out on the next frame, at the frame's real size
+  if (!c) courtFits = [];
   if (c) { const q = hApply(c.m2i, 10, 11); c.wSign = Math.sign(hApply(c.i2m, q[0], q[1])[2]) || 1; }   // sign of a point on the court
   names = c ? endNames(c.m2i) : { near: "近端", far: "遠端" };
   if (judge) judge.names = names;
@@ -700,13 +717,17 @@ function onFrame(t) {
   if (proc.width !== w || proc.height !== h) { proc.width = w; proc.height = h; prevGray = null; }
   pctx.drawImage(cam, 0, 0, w, h);
   const rgba = pctx.getImageData(0, 0, w, h).data;
-  // court: at the start, when asked, and every 10 s between rallies (it takes a few hundred ms)
-  if (!court?.manual && !tap && (!court ? t - lastCourtT > 1 : (judge.state === "idle" && t - lastCourtT > 10))) {
+  // court: every second until three fits are in, then every 10 s between rallies (each takes a few hundred ms)
+  if (!court?.manual && !tap && (courtFits.length < 3 ? t - lastCourtT > 1 : (judge.state === "idle" && t - lastCourtT > 10))) {
     lastCourtT = t;
     const c = detectCourt(rgba, w, h, null, $("courtType").value);
     dbg.courts.push({ t: +t.toFixed(2), ok: !!c, tpl: c?.template, hit: c?.hit, miss: c?.miss });
-    if (c) { setCourt(c); setStatus(camNote + "已辨識球場（青色虛線）。看到球在動就開始判斷；線沒對準就按「重新校正球場」。"); }
-    else if (!court) setStatus(camNote + "還沒找到球場白線：手機架高、橫放，整面場入鏡後會自動辨識。斜角或側面拍請按「手動點四角」。");
+    if (c) { courtFits.push(c); if (courtFits.length > 8) courtFits.shift(); }
+    const v = votedCourt();
+    if (v) {
+      setStatus(camNote + `已辨識球場（青色虛線，最近 ${courtFits.length} 次有 ${v.votes} 次一致）。線沒對準就按「重新校正球場」或「手動點四角」。`);
+      if (v.court !== court) setCourt(v.court);
+    } else if (!court) setStatus(camNote + "還沒找到球場白線：手機架高、橫放，整面場入鏡後會自動辨識。斜角或側面拍請按「手動點四角」。");
   }
   if (!stay || stay.length !== w * h) stay = new Uint8Array(w * h);
   if (court && !roi) roi = courtRoi(court, w, h);
