@@ -49,23 +49,39 @@ class RallyRecorder {
   }
   constructor(stream, { preroll = 3, after = 1, bitrate = 4e6, onClip }) {
     this.stream = stream; this.preroll = preroll; this.after = after; this.bitrate = bitrate; this.onClip = onClip;
-    this.mime = RallyRecorder.pickMime(); this.standby = []; this.kept = null; this.timer = 0;
+    this.mime = RallyRecorder.pickMime(); this.standby = []; this.kept = null; this.timer = 0; this.stalls = 0;
   }
   get ok() { return !!this.mime; }
   now() { return performance.now() / 1000; }
   begin() { if (!this.ok) return; this.cycle(); this.timer = setInterval(() => this.cycle(), 400); }
+  // Each recording gets its own copy of the camera track: on iPhones a clip recorded next to others stopped getting frames
+  // part way through (the file runs on, frozen). Data is asked for every second, so a recording that stalls shows up.
   make() {
-    const r = { rec: new MediaRecorder(this.stream, { mimeType: this.mime, videoBitsPerSecond: this.bitrate }), chunks: [], t0: this.now() };
-    r.rec.ondataavailable = (e) => { if (e.data && e.data.size) r.chunks.push(e.data); };
-    r.rec.start();
+    const track = this.stream.getVideoTracks()[0], copy = track?.clone ? track.clone() : null;
+    const stream = copy ? new MediaStream([copy]) : this.stream;
+    const r = { rec: new MediaRecorder(stream, { mimeType: this.mime, videoBitsPerSecond: this.bitrate }), copy, chunks: [], t0: this.now(), sizes: [], peak: 0 };
+    r.rec.ondataavailable = (e) => {
+      const n = e.data?.size || 0;
+      if (n) r.chunks.push(e.data);
+      r.sizes.push(n); if (r.sizes.length > 3) r.sizes.shift();
+      r.peak = Math.max(r.peak, n);
+    };
+    r.rec.start(1000);
     return r;
   }
-  drop(r) { r.rec.onstop = null; try { r.rec.stop(); } catch {} }
+  // the last two seconds brought next to nothing after real data before: the recording has stopped getting frames
+  // (a still scene gives little data all along, so it is measured against the recording's own best second)
+  stalled(r) {
+    const s = r.sizes;
+    return s.length >= 2 && r.peak > 30000 && s.slice(-2).every((n) => n < Math.max(1500, 0.03 * r.peak));
+  }
+  release(r) { try { r.copy?.stop(); } catch {} }
+  drop(r) { r.rec.onstop = null; try { r.rec.stop(); } catch {} this.release(r); }
   // between rallies: always have a recording that is at least `preroll` seconds old
   cycle() {
-    if (this.kept) return;
+    if (this.kept) { if (!this.kept.stall && this.stalled(this.kept)) { this.kept.stall = true; this.stalls++; } return; }
     const t = this.now();
-    this.standby = this.standby.filter((r) => (t - r.t0 > 2 * this.preroll + 0.5 ? (this.drop(r), false) : true));
+    this.standby = this.standby.filter((r) => (t - r.t0 > 2 * this.preroll + 0.5 || this.stalled(r) ? (this.stalled(r) && this.stalls++, this.drop(r), false) : true));
     const newest = this.standby[this.standby.length - 1];
     if (!newest || t - newest.t0 >= this.preroll) this.standby.push(this.make());
   }
@@ -87,10 +103,16 @@ class RallyRecorder {
   rallyCancel() { const k = this.kept; if (!k) return; this.kept = null; this.drop(k); this.cycle(); }
   finish(k) {
     k.rec.onstop = () => {
+      this.release(k);
       const blob = new Blob(k.chunks, { type: this.mime.split(";")[0] });
-      this.onClip?.({ n: k.n, blob, mime: blob.type, preroll: +(k.rallyAt - k.t0).toFixed(2), duration: +(this.now() - k.t0).toFixed(2) });
+      this.onClip?.({ n: k.n, blob, mime: blob.type, preroll: +(k.rallyAt - k.t0).toFixed(2), duration: +(this.now() - k.t0).toFixed(2), stalled: !!k.stall });
     };
     try { k.rec.stop(); } catch {}
+  }
+  // for the diagnostics line: how many recordings run, KB written in their last second, and how many stalled so far
+  status() {
+    const all = [...this.standby, ...(this.kept ? [this.kept] : [])];
+    return `錄影 ${all.length} 段 ${all.map((r) => (r === this.kept ? "●" : "") + Math.round((r.sizes[r.sizes.length - 1] || 0) / 1000)).join("/")}KB/秒 · 中斷 ${this.stalls}`;
   }
   end() {
     clearInterval(this.timer);

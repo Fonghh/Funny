@@ -654,7 +654,7 @@ function saveMatch() { if (match && (match.rallies.length || match.points.length
 function storeClip(m, c) {
   clipsByMatch.get(m.id)?.push(c);
   const r = m.rallies.find((x) => x.n === c.n);
-  const info = { preroll: c.preroll, duration: c.duration, size: c.blob.size, mime: c.mime };
+  const info = { preroll: c.preroll, duration: c.duration, size: c.blob.size, mime: c.mime, stalled: c.stalled };
   if (r) r.clip = info; else (m.pendingClips ||= {})[c.n] = info;   // the rally record is written when the rally ends
   MatchDB.saveClip({ key: `${m.id}:${c.n}`, matchId: m.id, n: c.n, blob: c.blob, ...info })
     .catch((e) => setStatus(`影片存不下來：${e.message || e}（手機空間可能不夠）`, true));
@@ -683,7 +683,7 @@ function showSummary(m) {
   if (!m || !(m.rallies.length || m.points.length)) return;
   const clips = clipsByMatch.get(m.id) || [], bytes = clips.reduce((a, c) => a + c.blob.size, 0);
   $("summary").hidden = false; $("summary").dataset.id = m.id;
-  $("sumLine").textContent = `A 隊 ${m.final.score.A} : ${m.final.score.B} B 隊 · ${m.points.filter((p) => !p.adjust).length} 分 · 錄到 ${clips.length} 球${clips.length ? `（${fmtBytes(bytes)}）` : ""}`;
+  $("sumLine").textContent = `A 隊 ${m.final.score.A} : ${m.final.score.B} B 隊 · ${m.points.filter((p) => !p.adjust).length} 分 · 錄到 ${clips.length} 球${clips.length ? `（${fmtBytes(bytes)}）` : ""}` + (clips.some((c) => c.stalled) ? ` · ${clips.filter((c) => c.stalled).length} 段錄影中途停住` : "");
   $("sumOpen").href = `./?match=${m.id}`;
   $("sumShare").hidden = !clips.length;
   $("summary").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -711,7 +711,7 @@ function diag(nCands, ms) {
   if (!on || now - dg.since < 1000) return;
   const sec = (now - dg.since) / 1000, ball = tracker.main();
   el.textContent = `每秒 ${(dg.n / sec).toFixed(0)} 張 · 處理 ${(dg.ms / dg.n).toFixed(0)}ms/張 · 像球的點 ${(dg.cands / dg.n).toFixed(1)}/張 · 球場 ${court ? "✓" : "✗"}\n`
-    + `軌跡 ${ball ? ball.pts.length + " 點 · 速度 " + judge.speed(ball).toFixed(0) + "px/s" : "無"} · 狀態 ${judge.state === "rally" ? `一球進行中（過網 ${judge.crossings.length} 次）` : "等待"} · 畫面 ${cam.videoWidth}×${cam.videoHeight}`;
+    + `軌跡 ${ball ? ball.pts.length + " 點 · 速度 " + judge.speed(ball).toFixed(0) + "px/s" : "無"} · 狀態 ${judge.state === "rally" ? `一球進行中（過網 ${judge.crossings.length} 次）` : "等待"} · 畫面 ${cam.videoWidth}×${cam.videoHeight}` + (recorder ? `\n${recorder.status()}` : "");
   dg.n = 0; dg.cands = 0; dg.ms = 0; dg.since = now;
 }
 

@@ -66,6 +66,8 @@ git add -A pickleball-pose docs && git commit && git push -u origin claude/pickl
 - **即時鏡頭的畫面時間戳記不可靠**（`requestVideoFrameCallback` 的 `mediaTime` 在手機上可能一直不變）：鏡頭模式一律用 `performance.now()` 計時；只有播放影片檔時才用 `mediaTime`。電腦模擬鏡頭測不出這個問題。
 - GitHub Pages 讓手機快取 10 分鐘：頁面之間的連結和 script 要帶 `?v=` 建置時間。
 - Safari 可能清掉 7 天沒開的網站資料（IndexedDB 裡的比賽與影片）。
+- **同時開好幾個 MediaRecorder 錄同一支鏡頭**（待命錄影）時，10/26 真機錄到的 16 段有大半「中途沒有畫面、檔案照樣變長」（播放時定格）。
+  已改成每段錄影用 `track.clone()` 的獨立軌道、每秒取一次資料偵測中斷，診斷資訊顯示「錄影 n 段 ●KB/秒 · 中斷 n」；**待真機確認**。
 
 ## 設計
 - 深色 HUD 風格；賽後分析的主色是青色 `#3fd4ff`，即時計分的主色是黃色 `#f3d23c`。
