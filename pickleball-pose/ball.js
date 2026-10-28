@@ -110,10 +110,18 @@ class RallyJudge {
     this.names = { near: "近端", far: "遠端" };      // shown in reasons; a side-on camera calls them 左邊／右邊
     this.state = "idle"; this.bounces = []; this.lastSeen = 0; this.endedAt = -1e9; this.trackId = null; this.path = [];
     this.lastRally = -1e9; this.crossings = []; this.side = 0;
+    this.readyLog = []; this.seenPlayers = false; this.server = null;
+    this.frame = null;      // [width, height] of the processing frame, to see a ball leave the picture
   }
   // t: seconds; ball: main track or null; toCourt(x, y) -> [cx, cy] in feet or null when there is no court
-  step(t, ball, toCourt) {
+  // players (optional): a PlayerFinder; who stands ready behind a baseline tells a serve from a ball handed over
+  step(t, ball, toCourt, players = null) {
     const events = [];
+    if (players) {
+      this.readyLog.push({ t, ready: players.ready(t) });
+      while (this.readyLog.length && t - this.readyLog[0].t > 2.5) this.readyLog.shift();
+      this.seenPlayers = this.seenPlayers || players.players.length > 0;
+    }
     // only a track that is moving like a ball keeps a rally alive (a yellow shirt drifting across does not)
     const fresh = ball && ball.pts[ball.pts.length - 1].t === t && this.speed(ball) >= this.minSpeed;
     if (this.state === "idle") {
@@ -128,7 +136,8 @@ class RallyJudge {
           this.origin = g && Math.abs(g[1]) < 60 ? g : null;
           this.crossings = []; this.side = 0;
           for (const q of this.path) this.noteSide(q, toCourt);
-          events.push({ type: "start", t: a.t });
+          this.server = players ? this.serverAt(a) : null;
+          events.push({ type: "start", t: a.t, server: this.server });
         }
       }
       return events;
@@ -164,8 +173,25 @@ class RallyJudge {
     }
     return events;
   }
+  // the player ready behind a baseline (in the last 2.5 s) the ball's first point is next to: who served it
+  serverAt(a) {
+    let best = null, bd = Infinity;
+    for (const { ready } of this.readyLog) for (const p of ready) {
+      const [x0, y0, x1, y1] = p.box, bw = x1 - x0, bh = y1 - y0;
+      // around the body: half a body width to each side, up to half a body height above the head
+      const dx = a.x < x0 - bw * 0.5 ? x0 - bw * 0.5 - a.x : a.x > x1 + bw * 0.5 ? a.x - x1 - bw * 0.5 : 0;
+      const dy = a.y < y0 - bh * 0.5 ? y0 - bh * 0.5 - a.y : a.y > y1 ? a.y - y1 : 0;
+      const d = Math.hypot(dx, dy);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best && bd < 1 ? { court: best.court, side: best.court[1] >= 0 ? "near" : "far" } : null;
+  }
   // one crossing only: a serve nobody returned (ball still beforehand, struck from deep), or the ball handed over
-  servedOnce() { return this.quiet >= this.serveQuiet && !!this.origin && Math.abs(this.origin[1]) >= this.serveDepth; }
+  // With players in view, the ball must also have come from someone standing ready behind a baseline: a ball tossed over
+  // to the other side after a long break is not a serve.
+  servedOnce() {
+    return this.quiet >= this.serveQuiet && !!this.origin && Math.abs(this.origin[1]) >= this.serveDepth && (!this.seenPlayers || !!this.server);
+  }
   // which half the ball's ground position is in; a change of half is a net crossing
   noteSide(q, toCourt) {
     if (!toCourt) return;
@@ -219,11 +245,27 @@ class RallyJudge {
     if (!before.length || !after.length) return false;
     return b.y - Math.min(...after) > 1.1 * (b.y - Math.min(...before));
   }
+  // The ball was last seen going out through the left, right or bottom edge within 2 s of crossing the net (the top could be
+  // a lob coming back). Then the side it crossed over to wins: the other side hit it out. Returns that side or null.
+  leftPicture(lastCross) {
+    const p = this.path, n = p.length;
+    if (!this.frame || n < 3 || lastCross < -1e8 || p[n - 1].t - lastCross > 2) return null;
+    const [W, H] = this.frame, q = p[n - 1], o = p[Math.max(0, n - 4)], dt = q.t - o.t;
+    if (dt <= 0) return null;
+    const vx = (q.x - o.x) / dt, vy = (q.y - o.y) / dt, m = 0.06 * W;
+    const out = (q.x < m && vx < -20) || (q.x > W - m && vx > 20) || (q.y > H - m && vy > 20);
+    return out ? (this.side > 0 ? "near" : "far") : null;
+  }
   outcome() {
     const lastCross = this.crossings.length ? this.crossings[this.crossings.length - 1] : -1e9;
     const after = this.bounces.filter((q) => q.court && q.t >= lastCross);
     let b = after.length ? after[0] : [...this.bounces].reverse().find((q) => q.court);
     if (after.length >= 2 && after[1].t - after[0].t < 1.5 && this.looksLikeHit(after[0], after[1].t)) b = after[1];
+    // no bounce after the last crossing, and the ball flew out of the picture on its way: it was hit out
+    if (!after.length) {
+      const out = this.leftPicture(lastCross);
+      if (out) return { winner: out, reason: "球飛出畫面（判定出界）" };
+    }
     if (!b) return { winner: null, reason: "沒看清楚球的落點" };
     const other = b.side === "near" ? "far" : "near", where = this.names[b.side];
     return b.in

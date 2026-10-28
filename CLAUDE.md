@@ -28,6 +28,10 @@
   - `ball.js`：找球（黃綠色＋移動）、`BallTracker`、`RallyJudge`（落地、一球開始/結束、判斷誰贏）、`SideOutGame`（傳統雙打計分 0-0-2）。
     有球場時 `RallyJudge` 看節奏：球過網才開始；約 4 秒沒被打回來就結束；只過網一次又離上一球不到 8 秒的當作交球；誰贏看最後一次過網後的第一個落點
     （若那個「落點」之後球爬得比落下前更高，其實是網前低擊球，改看下一個落點；一球結束時會重看最後一段，補抓落地後馬上飛出畫面的球）。
+    過網後沒看到落地、球從畫面左右或下緣飛出去：判打的人出界（`leftPicture`，需要 `judge.frame`）。
+  - `players.js`：`PlayerFinder` 找球員（不用姿態模型）：手機固定，跟慢慢學到的空場背景不同、夠高的色塊就是人，最下緣是腳，投影到球場（腳在地上，低角度也準）。
+    頭 10 秒學背景；`offBodies` 丟掉在球員身體中間的像球點（衣服、身後被露出的綠牆）；`ready` = 站在底線後、穩定約 1 秒的人。
+    `RallyJudge.step` 的第 4 個參數；只過網一次的「發球直接得分」要球從準備發球的人旁邊出來才算。計分頁每張畫面約多 1–3ms。
   - `match.js`：IndexedDB（資料庫 `picklepose`：`matches`、`clips`）與 `RallyRecorder`（錯開的待命錄影，做到「偵測到球的前 N 秒」開始錄）。兩頁共用。
   - `build_pages.py`：產生 `docs/`。複製 MediaPipe 執行檔與模型、做主畫面圖示與 manifest，並在頁面連結和 script 網址加上建置時間 `?v=` 避免手機吃到快取。
   - `fetch_assets.sh`：下載 MediaPipe（`mp/`）與姿態模型（`models/`），這兩個資料夾在 `pickleball-pose/` 不進 git。
@@ -52,7 +56,8 @@ git add -A pickleball-pose docs && git commit && git push -u origin claude/pickl
 - 這個容器連不到 fonghh.github.io 和 jsDelivr；部署狀態用 GitHub Actions 的 `pages build and deployment` 看。
 - `node pickleball-pose/tests/replay_img3668.mjs`：使用者真實影片（隔圍網、低角度）錄下的候選點＋使用者標的正確答案，重播後逐球對照。目前 6 段只對 1 段，是低角度的已知限制。
 - `node pickleball-pose/tests/replay_broadcast.mjs`：YouTube 職業賽轉播兩段（高處、底線正後方，自動辨識球場）＋使用者確認的答案，目前 2/2。
-- `node pickleball-pose/tests/sim_rally.mjs`：模擬比賽（一般來回、交球、發球直接得分、打出界、回球掛網、深球彈兩次、網前低擊球後打出界），改 `RallyJudge` 後先跑這個。
+- `node pickleball-pose/tests/replay_badminton.mjs`：使用者 10/26 羽球館 16 段（有球員資料）＋使用者標註，新舊對照；目前不用球員 3 對 7 錯、用球員 6 對 3 錯。
+- `node pickleball-pose/tests/sim_rally.mjs`：模擬比賽（一般來回、交球、發球直接得分、打出界、回球掛網、深球彈兩次、網前低擊球後打出界、球飛出畫面），改 `RallyJudge` 後先跑這個。
 - 頁面上有除錯用的 `window.__summary()`、`window.__score()`、`window.__dbg`、`window.__match()`。
 - 用真實影片調整判斷：在頁面裡攔截 `step(t, cands)` 把每張的候選點存下來，之後在 Node 用 `BallTracker`/`RallyJudge` 重播，不用每次重跑瀏覽器。注意 `start()` 會清掉球場，要等 `running` 之後再設。
 - 計分頁設定裡有「診斷資訊」開關，會在畫面下方顯示每秒張數、處理時間、像球的點數、球場是否辨識、軌跡與狀態；請使用者在真機截圖回報。

@@ -37,13 +37,16 @@ wait(12);
 play('deep ball, near misses (2nd bounce behind baseline) -> far wins', [5, -23, 2.5], [[[12, 16, 0], 1.2, 7], [[13, 24, 0], 0.6, 2.5], [[13, 27, 0.3], 0.4, 0.5]]);
 wait(12);
 play('volley low over the net, then long -> far wins', [6, 23, 2.5], [[[15, -14, 0], 1.1, 6], [[15, -19, 1.5], 0.5, 2], [[11, 8, 0], 1.0, 4], [[11, 3, 1], 0.4, 1.5], [[10, -26, 0], 1.2, 9], [[10, -30, 0], 0.4, 1.5]]);
+wait(12);
+play('return hit wide, flies out of the picture -> near wins', [6, 23, 2.5], [[[15, -14, 0], 1.1, 6], [[15, -19, 1.5], 0.5, 2], [[40, 10, 1.5], 1.2, 4]]);
 wait(6);
 const end = T;
 const tr = new B.BallTracker(1), j = new B.RallyJudge();
+j.frame = [640, 360];
 let i = 0;
 for (let t = 0; t < end; t += 1 / 30) {
   const cands = [];
-  while (i < script.length && script[i].t <= t + 1e-6) { const [x, y] = proj(...script[i].c); if (Math.abs(script[i].t - t) < 0.02) cands.push({ x, y, a: 10 }); i++; }
+  while (i < script.length && script[i].t <= t + 1e-6) { const [x, y] = proj(...script[i].c); if (Math.abs(script[i].t - t) < 0.02 && x >= 0 && x < 640 && y >= 0 && y < 360) cands.push({ x, y, a: 10 }); i++; }
   tr.update(t, cands);
   for (const e of j.step(t, tr.main(), toCourt)) {
     if (e.type === 'bounce') continue;

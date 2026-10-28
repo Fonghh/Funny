@@ -158,7 +158,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
 <div class="app">
   <header class="bar">
     <div class="brand"><b>PICKLE<i>/</i>SCORE</b><span>參考用</span></div>
-    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261028091142">賽後分析</a><a class="score" href="score.html?v=20261028091142" aria-current="page">即時計分</a></nav>
+    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261028113956">賽後分析</a><a class="score" href="score.html?v=20261028113956" aria-current="page">即時計分</a></nav>
   </header>
 
   <section class="stage" aria-label="鏡頭">
@@ -172,7 +172,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
         <button class="btn primary" id="camBtn" type="button">開啟鏡頭開始計分</button>
         <label class="btn" for="file">用錄好的影片測試</label>
         <input type="file" id="file" accept="video/*">
-        <a class="shrink" href="shrink.html?v=20261028091142">影片太大傳不出去？壓縮影片</a>
+        <a class="shrink" href="shrink.html?v=20261028113956">影片太大傳不出去？壓縮影片</a>
         <label class="lens">鏡頭<select id="lens"><option value="1">1x 一般</option><option value="0.5">0.5x 超廣角</option></select></label>
         <p><b>架設方式：</b>手機橫放，架在<b>底線正後方中央</b>，越高越好（約 2 公尺以上），拍到整面球場。</p>
         <p>從斜角或側面拍：開始後按「手動點四角」，在畫面上點出球場。</p>
@@ -245,7 +245,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     <h2 id="h-sum" class="sum-h">這場比賽已儲存</h2>
     <p class="sum-line" id="sumLine"></p>
     <div class="big">
-      <a class="btn primary" id="sumOpen" href="./?v=20261028091142">在賽後分析查看</a>
+      <a class="btn primary" id="sumOpen" href="./?v=20261028113956">在賽後分析查看</a>
       <button class="btn" id="sumShare" type="button">存到相簿</button>
     </div>
     <p class="sum-note" id="sumNote">影片存在這個網站裡，賽後分析頁的「我的比賽」可以直接打開。Safari 可能在網站 7 天沒打開後清掉這些資料，重要的比賽請按「存到相簿」。</p>
@@ -283,9 +283,10 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
   </section>
 </div>
 
-<script src="court.js?v=20261028091142"></script>
-<script src="ball.js?v=20261028091142"></script>
-<script src="match.js?v=20261028091142"></script>
+<script src="court.js?v=20261028113956"></script>
+<script src="ball.js?v=20261028113956"></script>
+<script src="players.js?v=20261028113956"></script>
+<script src="match.js?v=20261028113956"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const cam = $("cam"), overlay = $("overlay"), octx = overlay.getContext("2d");
@@ -451,7 +452,14 @@ $("pSkip").addEventListener("click", () => {
 // ---------- video source: camera or a recorded file ----------
 let stay = null;          // how long each pixel has been ball-coloured (see ballCandidates)
 let running = false, tracker, judge, prevGray = null, court = null, lastCourtT = -1e9, roi = null, bouncesShown = [], wakeLock = null, fileMode = false;
-function resetPipeline() { tracker = new BallTracker(1); judge = new RallyJudge(); judge.names = names; prevGray = null; stay = null; bouncesShown = []; }
+function resetPipeline() { tracker = new BallTracker(1); judge = new RallyJudge(); judge.names = names; prevGray = null; stay = null; bouncesShown = []; players = null; }
+// the players, found as what differs from the learned empty court (players.js); kept when ball detection is restarted
+let players = null;
+function newPlayers(w, h) {
+  const toCourt = (x, y) => { if (!court) return null; const g = hApply(court.i2m, x / w, y / h); return g[2] * court.wSign > 0 ? g.slice(0, 2) : null; };
+  const toImage = (x, y) => { if (!court) return null; const p = hApply(court.m2i, x, y); return p[2] > 0 ? [p[0] * w, p[1] * h] : null; };
+  return new PlayerFinder(Math.floor(w / 4), Math.floor(h / 4), toCourt, 4, toImage);
+}
 $("camBtn").addEventListener("click", async () => {
   try {
     const { stream, note } = await openCamera($("lens").value === "0.5");
@@ -711,7 +719,9 @@ function diag(nCands, ms) {
   if (!on || now - dg.since < 1000) return;
   const sec = (now - dg.since) / 1000, ball = tracker.main();
   el.textContent = `每秒 ${(dg.n / sec).toFixed(0)} 張 · 處理 ${(dg.ms / dg.n).toFixed(0)}ms/張 · 像球的點 ${(dg.cands / dg.n).toFixed(1)}/張 · 球場 ${court ? "✓" : "✗"}\n`
-    + `軌跡 ${ball ? ball.pts.length + " 點 · 速度 " + judge.speed(ball).toFixed(0) + "px/s" : "無"} · 狀態 ${judge.state === "rally" ? `一球進行中（過網 ${judge.crossings.length} 次）` : "等待"} · 畫面 ${cam.videoWidth}×${cam.videoHeight}` + (recorder ? `\n${recorder.status()}` : "");
+    + `軌跡 ${ball ? ball.pts.length + " 點 · 速度 " + judge.speed(ball).toFixed(0) + "px/s" : "無"} · 狀態 ${judge.state === "rally" ? `一球進行中（過網 ${judge.crossings.length} 次）` : "等待"} · 畫面 ${cam.videoWidth}×${cam.videoHeight}`
+    + (players ? `\n球員 ${players.players.length} 人（底線後準備 ${players.ready(players.history.length ? players.history[players.history.length - 1].t : 0).length}）${players.n < 300 ? " · 學習背景中" : ""}` : "")
+    + (recorder ? `\n${recorder.status()}` : "");
   dg.n = 0; dg.cands = 0; dg.ms = 0; dg.since = now;
 }
 
@@ -744,7 +754,10 @@ function onFrame(t) {
   if (court && !roi) roi = courtRoi(court, w, h);
   const { cands, gray } = ballCandidates(rgba, w, h, prevGray, roi, stay);
   prevGray = gray; dbg.cands += cands.length;
-  step(t, cands);
+  if (!players || players.w !== Math.floor(w / 4) || players.h !== Math.floor(h / 4)) players = newPlayers(w, h);
+  players.update(t, PlayerFinder.shrink(gray, w, h, 4));
+  // yellow-green bits on a player's shirt or on the wall behind them as they move are not the ball
+  step(t, PlayerFinder.offBodies(cands, players.players));
   diag(cands.length, performance.now() - tStart);
 }
 function step(t, cands) {
@@ -756,7 +769,8 @@ function step(t, cands) {
   if (waitCourt && (court || t - waitCourtFrom > 5)) waitCourt = false;
   // nothing is judged while the court is being tapped or looked for
   const judging = !tap && !waitCourt;
-  for (const e of judging ? judge.step(t, tracker.main(), toCourt) : []) {
+  judge.frame = [w, h];
+  for (const e of judging ? judge.step(t, tracker.main(), toCourt, players) : []) {
     dbg.events.push({ type: e.type, t: +(e.t ?? t).toFixed(2), court: e.court?.map((v) => +v.toFixed(1)), in: e.in, winner: e.winner });
     if (e.type === "start") {
       setChip("rally", "RALLY · 進行中"); bouncesShown = [];
@@ -856,6 +870,14 @@ function draw() {
   for (const b of bouncesShown) {
     octx.strokeStyle = b.court ? (b.in ? css("--good") : css("--bad")) : css("--muted"); octx.lineWidth = lw * 1.5;
     octx.beginPath(); octx.ellipse(b.x * sx, b.y * sy, lw * 6, lw * 3, 0, 0, Math.PI * 2); octx.stroke();
+  }
+  // with the diagnostics on: where each player's feet are (orange: standing ready behind a baseline)
+  if (players && $("diagMode").value === "on") {
+    const ready = players.ready(players.history.length ? players.history[players.history.length - 1].t : 0);
+    for (const p of players.players) {
+      octx.fillStyle = ready.includes(p) ? css("--warn") : css("--cyan");
+      octx.beginPath(); octx.arc(p.x * sx, Math.min(p.y, proc.height - 2) * sy, lw * 3, 0, Math.PI * 2); octx.fill();
+    }
   }
 }
 window.addEventListener("resize", () => { if (proc.width) draw(); });
