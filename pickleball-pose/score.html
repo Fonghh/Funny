@@ -343,8 +343,16 @@ function renderLog() {
 }
 const t0 = Date.now();
 function clock() { const s = Math.floor((Date.now() - t0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
-$("nearWin").addEventListener("click", () => { const n = proposal?.n ?? endRally(); clearProposal(); award("near", "手動", false, n); });
-$("farWin").addEventListener("click", () => { const n = proposal?.n ?? endRally(); clearProposal(); award("far", "手動", false, n); });
+// a tap only scores the point; ball detection goes on. It answers the open question if there is one, else it decides the
+// rally being followed now, which then ends without asking again.
+function manualWin(side) {
+  if (proposal) { const n = proposal.n; clearProposal(); award(side, "手動", false, n); return; }
+  const r = judge?.state === "rally" ? curRally : null;
+  award(side, "手動", false, r?.n ?? null);
+  if (r) { r.hand = { team: teamOf(side), side, call: game.call() }; setStatus("這一球已手動判定，偵測照常進行，結束時不會再問。"); }
+}
+$("nearWin").addEventListener("click", () => manualWin("near"));
+$("farWin").addEventListener("click", () => manualWin("far"));
 function undoLast() {
   game.undo(); log.shift(); renderLog(); renderBoard();
   if (match?.points.length) { const p = match.points.pop(); const r = match.rallies.find((x) => x.n === p.rally); if (r) delete r.decision; saveMatch(); }
@@ -385,7 +393,7 @@ function setCall(serving, c, reason) {
 }
 for (const T of ["A", "B"]) $("adj" + T).addEventListener("click", () => {
   const c = parseCall(adjBuf); if (!c) return;
-  clearProposal(); endRally(); setCall(T, c, "手動調整比分"); openAdjust(false);
+  setCall(T, c, "手動調整比分"); openAdjust(false);
 });
 $("adjBtn").addEventListener("click", () => openAdjust($("adjust").hidden));
 $("adjCancel").addEventListener("click", () => openAdjust(false));
@@ -486,7 +494,9 @@ $("file").addEventListener("change", async () => {
 $("stopBtn").addEventListener("click", () => { clearProposal(); const m = finishMatch(); stop(); showSummary(m); });
 $("calBtn").addEventListener("click", recalibrate);
 $("courtType").addEventListener("change", recalibrate);
-function recalibrate() { endTap(); lastCourtT = -1e9; setCourt(null); setStatus("校正球場中…"); }
+function recalibrate() { endTap(); lastCourtT = -1e9; setCourt(null); resetDetection(); waitCourt = true; waitCourtFrom = null; setStatus("校正球場中…"); }
+// at the start and after a recalibration, rallies are not followed until the court is found (at most 5 s, then without one)
+let waitCourt = true, waitCourtFrom = null;
 // The phone does not move, so the court should not either; but one detection can slip onto the next court's lines in a hall
 // with several courts side by side, or miss lines hidden by players. The last few detections vote: the court most of them
 // agree with is used, and it is only replaced by one with more votes.
@@ -536,6 +546,7 @@ const TAP_SETS = {
 const tapSet = () => TAP_SETS[$("tapMode").value] || TAP_SETS.corners;
 let tap = null;           // { pts: [[x, y] normalized], drag: index or -1, wasPlaying }
 function beginTap() {
+  resetDetection();
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem("pp.corners") || "null"); } catch {}
   if (saved && !Array.isArray(saved)) { if (TAP_SETS[saved.mode]) $("tapMode").value = saved.mode; saved = saved.pts; }
@@ -591,13 +602,13 @@ $("tapCancel").addEventListener("click", endTap);
 $("tapOk").addEventListener("click", () => {
   const c = tapCourt(tap.pts); if (!c) return;
   try { localStorage.setItem("pp.corners", JSON.stringify({ mode: $("tapMode").value, pts: tap.pts })); } catch {}
-  endTap(); setCourt(c); lastCourtT = Infinity;
+  endTap(); setCourt(c); resetDetection(); lastCourtT = Infinity;
   dbg.courts.push({ t: lastT, ok: true, manual: true });
   setStatus(`已用手動四角設定球場（${names.near}是你點的那半場）。要改回自動辨識就按「重新校正球場」。`);
 });
 function start() {
   $("startPane").hidden = true; $("calBtn").disabled = false; $("tapBtn").disabled = false; $("stopBtn").disabled = false; $("summary").hidden = true;
-  setCourt(null); running = true; resetPipeline(); lastCourtT = -1e9; lastT = -1;
+  setCourt(null); running = true; resetPipeline(); lastCourtT = -1e9; lastT = -1; waitCourt = true; waitCourtFrom = null;
   beginMatch();
   setChip("live", "LIVE · 等待發球");
   schedule();
@@ -741,7 +752,11 @@ function step(t, cands) {
   const w = proc.width, h = proc.height;
   // a point above the horizon has no place on the floor: its projection lands behind the camera
   const toCourt = court ? (x, y) => { const g = hApply(court.i2m, x / w, y / h); return g[2] * court.wSign > 0 ? g.slice(0, 2) : null; } : null;
-  for (const e of judge.step(t, tracker.main(), toCourt)) {
+  if (waitCourt && waitCourtFrom == null) waitCourtFrom = t;
+  if (waitCourt && (court || t - waitCourtFrom > 5)) waitCourt = false;
+  // nothing is judged while the court is being tapped or looked for
+  const judging = !tap && !waitCourt;
+  for (const e of judging ? judge.step(t, tracker.main(), toCourt) : []) {
     dbg.events.push({ type: e.type, t: +(e.t ?? t).toFixed(2), court: e.court?.map((v) => +v.toFixed(1)), in: e.in, winner: e.winner });
     if (e.type === "start") {
       setChip("rally", "RALLY · 進行中"); bouncesShown = [];
@@ -754,12 +769,14 @@ function step(t, cands) {
     }
     if (e.type === "end") {
       setChip("live", "LIVE · 等待發球");
+      const hand = curRally?.hand;
       if (curRally && match) {
         Object.assign(curRally, { end: Date.now(), auto: { winner: e.winner, reason: e.reason } });
+        if (hand) curRally.decision = { team: hand.team, side: hand.side, auto: false, call: hand.call };
         match.rallies.push(curRally); e.n = curRally.n; saveMatch();
       }
       curRally = null; recorder?.rallyEnd();
-      propose(e);
+      if (!hand) propose(e);
     }
     if (e.type === "cancel") {
       setChip("live", "LIVE · 等待發球"); bouncesShown = [];
@@ -770,16 +787,13 @@ function step(t, cands) {
   }
   draw();
 }
-// the point was decided by hand while the judge still follows the ball (players hand the ball over, pick it up...):
-// close the rally and its clip now. Returns the rally number, or null when no rally was going.
-function endRally() {
-  if (!judge) return null;
-  if (judge.state !== "rally") { judge.lastRally = Math.max(judge.lastRally, lastT); return null; }   // a point the camera missed
-  judge.stop(lastT); setChip("live", "LIVE · 等待發球"); bouncesShown = [];
-  const r = curRally; curRally = null; recorder?.rallyEnd();
-  if (!r) return null;
-  if (match) { Object.assign(r, { end: Date.now(), auto: { winner: null, reason: "提早結束" } }); match.rallies.push(r); saveMatch(); }
-  return r.n;
+// start ball detection over (the court is kept): a rally being followed is dropped with its clip. Used when the court is
+// recalibrated or tapped, since anything followed meanwhile was judged against no court or the wrong one.
+function resetDetection() {
+  if (!tracker) return;
+  if (curRally) { rallyN--; curRally = null; recorder?.rallyCancel(); }
+  tracker = new BallTracker(1); judge = new RallyJudge(); judge.names = names; bouncesShown = [];
+  if (running) setChip("live", "LIVE · 等待發球");
 }
 // search area: the court's image bounds, widened, plus everything above it (balls fly high)
 function courtRoi(c, w, h) {
