@@ -45,7 +45,7 @@ video { width: 100%; aspect-ratio: 16 / 9; background: #000; border: 1px solid v
 </head>
 <body>
 <div class="app">
-  <header class="bar"><b>壓縮影片</b><a href="score.html?v=20261028114144">← 即時計分</a><a href="./?v=20261028114144">賽後分析</a></header>
+  <header class="bar"><b>壓縮影片</b><a href="score.html?v=20261029002132">← 即時計分</a><a href="./?v=20261029002132">賽後分析</a></header>
 
   <section class="card">
     <h1>把影片變小，傳給 Claude</h1>
@@ -82,8 +82,10 @@ function pickMime() {
 }
 const mime = pickMime(), ext = mime.includes("mp4") ? "mp4" : "webm";
 
-// one part per recorder; a new recorder takes over as soon as the current part reaches the size limit
-function startPart(stream) {
+// one part per recorder; a new recorder takes over as soon as the current part reaches the size limit. Each part records its
+// own capture of the canvas: on iPhones a recording running next to another one on the same stream can stop getting frames.
+function startPart() {
+  const stream = canvas.captureStream(30), track = stream.getVideoTracks()[0];
   const r = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: BITRATE }), mine = [];
   const from = vid.currentTime;
   let bytes = 0, rolled = false;
@@ -91,9 +93,9 @@ function startPart(stream) {
     if (!e.data.size) return;
     mine.push(e.data); bytes += e.data.size;
     if (r === rec) { size = bytes; showProgress(); }
-    if (!rolled && r === rec && bytes > LIMIT && running) { rolled = true; rec = startPart(stream); r.stop(); }
+    if (!rolled && r === rec && bytes > LIMIT && running) { rolled = true; rec = startPart(); r.stop(); }
   };
-  r.onstop = () => { addPart(new Blob(mine, { type: mime.split(";")[0] }), from, vid.currentTime); };
+  r.onstop = () => { track?.stop(); addPart(new Blob(mine, { type: mime.split(";")[0] }), from, vid.currentTime); };
   r.start(1000);
   return r;
 }
@@ -147,12 +149,11 @@ $("file").addEventListener("change", async () => {
   if (!vid.videoWidth) { setStatus("讀不到這段影片，請換一段。", true); return; }
   const s = LONG_SIDE / Math.max(vid.videoWidth, vid.videoHeight);
   canvas.width = Math.round(vid.videoWidth * s / 2) * 2; canvas.height = Math.round(vid.videoHeight * s / 2) * 2;
-  const stream = canvas.captureStream(30);
   running = true; size = 0; finishing = null;
   try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
   try { await vid.play(); } catch (e) { running = false; setStatus("影片無法播放，請換一段。", true); return; }
   draw();
-  rec = startPart(stream);
+  rec = startPart();
   $("stopBtn").hidden = false; $("file").disabled = true;
   vid.ontimeupdate = showProgress;
   vid.onended = () => finish();
@@ -161,7 +162,8 @@ async function finish() {
   if (!running) return;
   running = false; vid.pause();
   const expect = parts.length + 1;
-  await new Promise((res) => { finishing = { expect, done: res }; rec.stop(); setTimeout(res, 5000); });
+  // the last part is handed over when its recorder has stopped; a long part can take a while to put together
+  await new Promise((res) => { finishing = { expect, done: res }; rec.stop(); setTimeout(res, 20000); });
   rec = null; wakeLock?.release?.(); wakeLock = null;
   $("stopBtn").hidden = true; $("file").disabled = false; $("bar").style.width = "100%";
   const total = parts.reduce((a, p) => a + p.file.size, 0);
