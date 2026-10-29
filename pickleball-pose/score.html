@@ -625,7 +625,7 @@ function stop() {
   running = false; $("rec").hidden = true;
   if (cam.srcObject) { cam.srcObject.getTracks().forEach((t) => t.stop()); cam.srcObject = null; }
   cam.pause(); wakeLock?.release?.(); wakeLock = null;
-  endTap(); $("startPane").hidden = false; $("calBtn").disabled = true; $("tapBtn").disabled = true; $("stopBtn").disabled = true;
+  endTap(); octx.clearRect(0, 0, overlay.width, overlay.height); $("startPane").hidden = false; $("calBtn").disabled = true; $("tapBtn").disabled = true; $("stopBtn").disabled = true;
   setChip("", "未開始"); setStatus("已停止。");
 }
 function setChip(cls, text) { const c = $("chip"); c.className = "chip " + cls; c.textContent = text; }
@@ -842,7 +842,9 @@ function draw() {
   const r = overlay.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
   if (overlay.width !== Math.round(r.width * dpr)) { overlay.width = Math.round(r.width * dpr); overlay.height = Math.round(r.height * dpr); }
   const W = overlay.width, H = overlay.height, sx = W / proc.width, sy = H / proc.height, lw = Math.max(1.5, W / 400);
-  octx.clearRect(0, 0, W, H);
+  // the camera picture is drawn here too: on iPhones the <video> element can stop showing it after a while (it turns black)
+  // while its frames still reach the page
+  if (running && cam.videoWidth) octx.drawImage(cam, 0, 0, W, H); else octx.clearRect(0, 0, W, H);
   if (court) {
     octx.save(); octx.strokeStyle = css("--cyan"); octx.globalAlpha = 0.6; octx.lineWidth = lw; octx.setLineDash([lw * 3, lw * 2]);
     for (const [x0, y0, x1, y1] of COURT_TEMPLATES[court.template].lines) {

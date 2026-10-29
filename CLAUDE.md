@@ -69,6 +69,8 @@ git add -A pickleball-pose docs && git commit && git push -u origin claude/pickl
 - 設定相同的 `currentTime` 可能不會觸發 `seeked`：seek 一律加逾時。
 - 瀏覽器錄的影片可能沒有長度（`duration` 是 Infinity）：先把 `currentTime` 設很大，等 `durationchange`。
 - **即時鏡頭的畫面時間戳記不可靠**（`requestVideoFrameCallback` 的 `mediaTime` 在手機上可能一直不變）：鏡頭模式一律用 `performance.now()` 計時；只有播放影片檔時才用 `mediaTime`。電腦模擬鏡頭測不出這個問題。
+- **鏡頭畫面會變黑**：10/26 使用者螢幕錄影中，計分頁跑約 50 秒後 `<video>` 變全黑，但畫面仍送進程式（還在判斷）。
+  已改成 `draw()` 每張都把鏡頭畫面畫進 overlay 畫布當底圖。
 - GitHub Pages 讓手機快取 10 分鐘：頁面之間的連結和 script 要帶 `?v=` 建置時間。
 - Safari 可能清掉 7 天沒開的網站資料（IndexedDB 裡的比賽與影片）。
 - **同時開好幾個 MediaRecorder 錄同一支鏡頭**（待命錄影）時，10/26 真機錄到的 16 段有大半「中途沒有畫面、檔案照樣變長」（播放時定格）。
