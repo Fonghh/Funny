@@ -158,7 +158,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
 <div class="app">
   <header class="bar">
     <div class="brand"><b>PICKLE<i>/</i>SCORE</b><span>參考用</span></div>
-    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261029002728">賽後分析</a><a class="score" href="score.html?v=20261029002728" aria-current="page">即時計分</a></nav>
+    <nav class="switch" aria-label="切換頁面"><a class="pose" href="./?v=20261030112913">賽後分析</a><a class="score" href="score.html?v=20261030112913" aria-current="page">即時計分</a></nav>
   </header>
 
   <section class="stage" aria-label="鏡頭">
@@ -172,7 +172,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
         <button class="btn primary" id="camBtn" type="button">開啟鏡頭開始計分</button>
         <label class="btn" for="file">用錄好的影片測試</label>
         <input type="file" id="file" accept="video/*">
-        <a class="shrink" href="shrink.html?v=20261029002728">影片太大傳不出去？壓縮影片</a>
+        <a class="shrink" href="shrink.html?v=20261030112913">影片太大傳不出去？壓縮影片</a>
         <label class="lens">鏡頭<select id="lens"><option value="1">1x 一般</option><option value="0.5">0.5x 超廣角</option></select></label>
         <p><b>架設方式：</b>手機橫放，架在<b>底線正後方中央</b>，越高越好（約 2 公尺以上），拍到整面球場。</p>
         <p>從斜角或側面拍：開始後按「手動點四角」，在畫面上點出球場。</p>
@@ -245,7 +245,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
     <h2 id="h-sum" class="sum-h">這場比賽已儲存</h2>
     <p class="sum-line" id="sumLine"></p>
     <div class="big">
-      <a class="btn primary" id="sumOpen" href="./?v=20261029002728">在賽後分析查看</a>
+      <a class="btn primary" id="sumOpen" href="./?v=20261030112913">在賽後分析查看</a>
       <button class="btn" id="sumShare" type="button">存到相簿</button>
     </div>
     <p class="sum-note" id="sumNote">影片存在這個網站裡，賽後分析頁的「我的比賽」可以直接打開。Safari 可能在網站 7 天沒打開後清掉這些資料，重要的比賽請按「存到相簿」。</p>
@@ -283,10 +283,10 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
   </section>
 </div>
 
-<script src="court.js?v=20261029002728"></script>
-<script src="ball.js?v=20261029002728"></script>
-<script src="players.js?v=20261029002728"></script>
-<script src="match.js?v=20261029002728"></script>
+<script src="court.js?v=20261030112913"></script>
+<script src="ball.js?v=20261030112913"></script>
+<script src="players.js?v=20261030112913"></script>
+<script src="match.js?v=20261030112913"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const cam = $("cam"), overlay = $("overlay"), octx = overlay.getContext("2d");
@@ -467,11 +467,32 @@ $("camBtn").addEventListener("click", async () => {
     await cam.play();
     camNote = note ? note + " " : "";
     try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
+    lastFrameWall = performance.now();
     start();
   } catch (e) {
     setStatus(`無法開啟鏡頭：${e.message || e}。請允許這個網站使用相機。`, true);
   }
 });
+// The camera can stop sending pictures on iPhones (seen after a minute or so of scoring while recording). Then nothing
+// moves on: the rally being followed never ends. When no picture has come for 3 s, the camera is opened again.
+let lastFrameWall = 0, reviving = false;
+setInterval(() => { if (running && !fileMode && !reviving && performance.now() - lastFrameWall > 3000) reviveCamera(); }, 1000);
+async function reviveCamera() {
+  reviving = true;
+  setStatus("鏡頭沒有畫面了，重新開啟中…", true);
+  try {
+    recorder?.end(); recorder = null;
+    if (cam.srcObject) cam.srcObject.getTracks().forEach((t) => t.stop());
+    const { stream } = await openCamera($("lens").value === "0.5");
+    cam.srcObject = stream; await cam.play();
+    resetDetection(); lastFrameWall = performance.now();
+    frameGen++; schedule();
+    startRecorder();
+    setStatus("鏡頭剛剛中斷，已重新開啟，比分不受影響。");
+  } catch (e) {
+    setStatus(`鏡頭中斷了，自動重開失敗（${e.message || e}）。請按「結束比賽並儲存」後重新開啟鏡頭。`, true);
+  } finally { reviving = false; lastFrameWall = performance.now(); }
+}
 // 0.5x: iPhones list the ultra-wide as its own camera; some Android phones offer it as zoom below 1 instead
 let camNote = "";         // e.g. the 0.5x lens was not available; kept in front of the court messages
 async function openCamera(wide) {
@@ -619,7 +640,7 @@ function start() {
   setCourt(null); running = true; resetPipeline(); lastCourtT = -1e9; lastT = -1; waitCourt = true; waitCourtFrom = null;
   beginMatch();
   setChip("live", "LIVE · 等待發球");
-  schedule();
+  frameGen++; schedule();
 }
 function stop() {
   running = false; $("rec").hidden = true;
@@ -629,13 +650,16 @@ function stop() {
   setChip("", "未開始"); setStatus("已停止。");
 }
 function setChip(cls, text) { const c = $("chip"); c.className = "chip " + cls; c.textContent = text; }
-function schedule() {
-  if (!running) return;
+// each start (and each reopened camera) begins a new frame loop; a callback left over from an older one does nothing
+let frameGen = 0;
+function schedule(gen = frameGen) {
+  if (!running || gen !== frameGen) return;
   // a live camera's frame timestamps are unreliable on phones (they can stay at 0), so live frames use the phone's own clock;
   // a recorded clip uses its position in the video
   const clock = () => (fileMode ? cam.currentTime : performance.now() / 1000);
-  if (cam.requestVideoFrameCallback) cam.requestVideoFrameCallback((now, meta) => { onFrame(fileMode ? meta.mediaTime : now / 1000); schedule(); });
-  else requestAnimationFrame(() => { onFrame(clock()); schedule(); });
+  const next = () => schedule(gen);
+  if (cam.requestVideoFrameCallback) cam.requestVideoFrameCallback((now, meta) => { if (gen !== frameGen) return; onFrame(fileMode ? meta.mediaTime : now / 1000); next(); });
+  else requestAnimationFrame(() => { if (gen !== frameGen) return; onFrame(clock()); next(); });
 }
 cam.addEventListener("ended", () => {
   // let the last rally finish: feed a couple of seconds of "no ball"
@@ -650,7 +674,11 @@ function beginMatch() {
     courtType: $("courtType").value, preroll: +$("preroll").value, court: null, rallies: [], points: [], final: null, status: "live" };
   rallyN = 0; curRally = null; clipsByMatch.set(match.id, []);
   recorder = null;
-  if (!fileMode && cam.srcObject && $("recMode").value === "rally") {
+  startRecorder();
+}
+function startRecorder() {
+  recorder = null;
+  if (!fileMode && cam.srcObject && match && $("recMode").value === "rally") {
     const m = match;
     recorder = new RallyRecorder(cam.srcObject, { preroll: +$("preroll").value, after: 1, onClip: (c) => storeClip(m, c) });
     if (recorder.ok) { recorder.begin(); navigator.storage?.persist?.().catch(() => {}); updateRec(); }
@@ -730,6 +758,7 @@ const dbg = { frames: 0, cands: 0, events: [], courts: [] };
 let lastT = -1;
 function onFrame(t) {
   if (!cam.videoWidth) return;
+  lastFrameWall = performance.now();
   if (!(t > lastT)) t = lastT + 0.001;            // time must always move forward
   lastT = t;
   dbg.frames++;
@@ -773,6 +802,13 @@ function step(t, cands) {
   for (const e of judging ? judge.step(t, tracker.main(), toCourt, players) : []) {
     dbg.events.push({ type: e.type, t: +(e.t ?? t).toFixed(2), court: e.court?.map((v) => +v.toFixed(1)), in: e.in, winner: e.winner });
     if (e.type === "start") {
+      // a "rally end" followed this fast by the ball crossing again was not the end: nobody serves within 4 s of a point.
+      // The question it raised goes away and the play is followed on.
+      if (proposal && proposal.t != null && t - proposal.t < 4) {
+        const r = proposal.n != null && match?.rallies.find((x) => x.n === proposal.n);
+        if (r) { r.decision = { void: true, reason: "還在打" }; saveMatch(); }
+        clearProposal(); setStatus("剛剛以為這球結束了，但球又過網，還在打：不計分，繼續判斷。");
+      }
       setChip("rally", "RALLY · 進行中"); bouncesShown = [];
       rallyN++; curRally = { n: rallyN, at: Date.now(), bounces: [] };
       recorder?.rallyStart(rallyN);

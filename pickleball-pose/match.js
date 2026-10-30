@@ -38,28 +38,28 @@ const MatchDB = {
   },
 };
 
-// Records only the rallies, each as its own complete video file, starting `preroll` seconds before the
-// rally was detected. A recording cannot reach back in time, so short "standby" recordings are kept
-// running, staggered by `preroll` seconds; when a rally starts, the one that already holds about
-// `preroll` seconds is kept going and the rest are dropped.
+// Records only the rallies, each as its own complete video file that starts some seconds before the rally was
+// detected (a recording cannot reach back in time, so one is always running and is kept when a rally starts).
 class RallyRecorder {
   static pickMime() {
     if (typeof MediaRecorder === "undefined") return null;
     return ["video/mp4;codecs=avc1.42E01E", "video/mp4", "video/webm;codecs=vp8", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m)) || null;
   }
+  // One recording at a time. On iPhones, recordings running side by side stopped getting frames part way (the clip froze),
+  // and giving each its own copy of the camera track made Safari run out of memory or lose the camera. So between rallies
+  // a single recording runs and is restarted every `segment` seconds (the old one has fully stopped before the next
+  // starts); when a rally starts, the running one is kept, so a clip starts anywhere from 0 to `segment` s before.
   constructor(stream, { preroll = 3, after = 1, bitrate = 4e6, onClip }) {
-    this.stream = stream; this.preroll = preroll; this.after = after; this.bitrate = bitrate; this.onClip = onClip;
-    this.mime = RallyRecorder.pickMime(); this.standby = []; this.kept = null; this.timer = 0; this.stalls = 0;
+    this.stream = stream; this.after = after; this.bitrate = bitrate; this.onClip = onClip;
+    this.segment = Math.max(8, 4 * preroll);
+    this.mime = RallyRecorder.pickMime(); this.cur = null; this.kept = null; this.busy = false; this.timer = 0; this.stalls = 0;
   }
   get ok() { return !!this.mime; }
   now() { return performance.now() / 1000; }
-  begin() { if (!this.ok) return; this.cycle(); this.timer = setInterval(() => this.cycle(), 400); }
-  // Each recording gets its own copy of the camera track: on iPhones a clip recorded next to others stopped getting frames
-  // part way through (the file runs on, frozen). Data is asked for every second, so a recording that stalls shows up.
+  begin() { if (!this.ok) return; this.startCur(); this.timer = setInterval(() => this.tick(), 400); }
+  // data is asked for every second, which shows a recording that stops getting frames
   make() {
-    const track = this.stream.getVideoTracks()[0], copy = track?.clone ? track.clone() : null;
-    const stream = copy ? new MediaStream([copy]) : this.stream;
-    const r = { rec: new MediaRecorder(stream, { mimeType: this.mime, videoBitsPerSecond: this.bitrate }), copy, chunks: [], t0: this.now(), sizes: [], peak: 0 };
+    const r = { rec: new MediaRecorder(this.stream, { mimeType: this.mime, videoBitsPerSecond: this.bitrate }), chunks: [], t0: this.now(), sizes: [], peak: 0 };
     r.rec.ondataavailable = (e) => {
       const n = e.data?.size || 0;
       if (n) r.chunks.push(e.data);
@@ -69,56 +69,59 @@ class RallyRecorder {
     r.rec.start(1000);
     return r;
   }
-  // the last two seconds brought next to nothing after real data before: the recording has stopped getting frames
-  // (a still scene gives little data all along, so it is measured against the recording's own best second)
-  stalled(r) {
-    const s = r.sizes;
-    return s.length >= 2 && r.peak > 30000 && s.slice(-2).every((n) => n < Math.max(1500, 0.03 * r.peak));
+  // the last two seconds brought next to nothing after real data before (a still scene gives little data all along,
+  // so it is measured against the recording's own best second)
+  stalled(r) { const s = r.sizes; return s.length >= 2 && r.peak > 30000 && s.slice(-2).every((n) => n < Math.max(1500, 0.03 * r.peak)); }
+  startCur() { if (!this.cur && !this.kept && !this.busy) this.cur = this.make(); }
+  // stop a recording, then run `then` once it has really stopped (or after 2 s at most)
+  stopThen(r, keep, then) {
+    this.busy = true;
+    let done = false;
+    const go = () => { if (done) return; done = true; this.busy = false; then?.(); };
+    r.rec.onstop = () => {
+      if (keep) {
+        const blob = new Blob(r.chunks, { type: this.mime.split(";")[0] });
+        this.onClip?.({ n: r.n, blob, mime: blob.type, preroll: +(r.rallyAt - r.t0).toFixed(2), duration: +(this.now() - r.t0).toFixed(2), stalled: !!r.stall });
+      }
+      go();
+    };
+    try { r.rec.stop(); } catch { go(); }
+    setTimeout(go, 2000);
   }
-  release(r) { try { r.copy?.stop(); } catch {} }
-  drop(r) { r.rec.onstop = null; try { r.rec.stop(); } catch {} this.release(r); }
-  // between rallies: always have a recording that is at least `preroll` seconds old
-  cycle() {
-    if (this.kept) { if (!this.kept.stall && this.stalled(this.kept)) { this.kept.stall = true; this.stalls++; } return; }
+  tick() {
     const t = this.now();
-    this.standby = this.standby.filter((r) => (t - r.t0 > 2 * this.preroll + 0.5 || this.stalled(r) ? (this.stalled(r) && this.stalls++, this.drop(r), false) : true));
-    const newest = this.standby[this.standby.length - 1];
-    if (!newest || t - newest.t0 >= this.preroll) this.standby.push(this.make());
+    if (this.kept) { if (!this.kept.stall && this.stalled(this.kept)) { this.kept.stall = true; this.stalls++; } return; }
+    if (this.busy) return;
+    if (!this.cur) { this.startCur(); return; }
+    const stall = this.stalled(this.cur);
+    if (stall || t - this.cur.t0 > this.segment) {
+      if (stall) this.stalls++;
+      const old = this.cur; this.cur = null;
+      this.stopThen(old, false, () => this.startCur());
+    }
   }
   rallyStart(n) {
-    if (!this.ok) return;
-    const t = this.now();
-    const pick = [...this.standby].reverse().find((r) => t - r.t0 >= this.preroll) || this.standby[0] || this.make();
-    for (const r of this.standby) if (r !== pick) this.drop(r);
-    this.standby = [];
-    this.kept = Object.assign(pick, { n, rallyAt: t });
+    if (!this.ok || this.kept) return;
+    if (!this.cur) this.cur = this.make();      // only while a restart is finishing: a short overlap is better than no clip
+    this.kept = Object.assign(this.cur, { n, rallyAt: this.now() });
+    this.cur = null;
   }
-  // keep recording `after` seconds past the end, then hand over the clip
+  // keep recording `after` seconds past the end, then hand over the clip and start the next recording
   rallyEnd() {
     const k = this.kept; if (!k) return;
-    this.kept = null;
-    setTimeout(() => this.finish(k), this.after * 1000);
-    this.cycle();
+    this.kept = null; this.busy = true;
+    setTimeout(() => this.stopThen(k, true, () => this.startCur()), this.after * 1000);
   }
-  rallyCancel() { const k = this.kept; if (!k) return; this.kept = null; this.drop(k); this.cycle(); }
-  finish(k) {
-    k.rec.onstop = () => {
-      this.release(k);
-      const blob = new Blob(k.chunks, { type: this.mime.split(";")[0] });
-      this.onClip?.({ n: k.n, blob, mime: blob.type, preroll: +(k.rallyAt - k.t0).toFixed(2), duration: +(this.now() - k.t0).toFixed(2), stalled: !!k.stall });
-    };
-    try { k.rec.stop(); } catch {}
-  }
-  // for the diagnostics line: how many recordings run, KB written in their last second, and how many stalled so far
-  status() {
-    const all = [...this.standby, ...(this.kept ? [this.kept] : [])];
-    return `錄影 ${all.length} 段 ${all.map((r) => (r === this.kept ? "●" : "") + Math.round((r.sizes[r.sizes.length - 1] || 0) / 1000)).join("/")}KB/秒 · 中斷 ${this.stalls}`;
-  }
+  rallyCancel() { const k = this.kept; if (!k) return; this.kept = null; this.stopThen(k, false, () => this.startCur()); }
   end() {
     clearInterval(this.timer);
-    for (const r of this.standby) this.drop(r);
-    this.standby = [];
-    if (this.kept) { const k = this.kept; this.kept = null; this.finish(k); }
+    if (this.cur) { const c = this.cur; this.cur = null; this.stopThen(c, false); }
+    if (this.kept) { const k = this.kept; this.kept = null; this.stopThen(k, true); }
+  }
+  // for the diagnostics line: the recording's KB in its last second, and how many stalled so far
+  status() {
+    const r = this.kept || this.cur;
+    return `錄影 ${this.kept ? "●保留中" : r ? "待命" : "切換中"} ${r ? Math.round((r.sizes[r.sizes.length - 1] || 0) / 1000) : 0}KB/秒 · 中斷 ${this.stalls}`;
   }
 }
 
