@@ -151,8 +151,13 @@ class RallyJudge {
       const bounce = this.findBounce(toCourt);
       if (bounce) { this.bounces.push(bounce); events.push({ type: "bounce", ...bounce }); }
     }
-    const noReturn = toCourt && this.crossings.length && t - this.crossings[this.crossings.length - 1] > this.returnWindow;
-    if (noReturn || t - this.lastSeen > this.endAfter || t - this.startedAt > this.maxRally) {
+    // Not returned across the net in time, and the ball is not flying any more either: with a low camera many crossings go
+    // unseen (the ball is above the horizon, or hidden), so a ball still in flight keeps the rally going.
+    const noReturn = toCourt && this.crossings.length && t - this.crossings[this.crossings.length - 1] > this.returnWindow && t - this.lastSeen > 1.2;
+    // a ball last seen going up near the top of the picture is a lob: it can stay out of sight a while and come back down
+    const last = this.path[this.path.length - 1], prev = this.path[Math.max(0, this.path.length - 4)];
+    const lob = this.frame && last && prev && (last.y < 0.15 * this.frame[1] || (last.y < prev.y - 4 && last.y < 0.35 * this.frame[1]));
+    if (noReturn || t - this.lastSeen > (lob ? 2 * this.endAfter : this.endAfter) || t - this.startedAt > this.maxRally) {
       this.state = "idle"; this.endedAt = t;
       // a ball that lands out often flies into the crowd and is lost right after its bounce, before four more points are seen:
       // look over the last second again, needing only two points after a low point
@@ -164,7 +169,8 @@ class RallyJudge {
       }
       this.bounces.sort((a, b) => a.t - b.t);
       if (toCourt) {
-        if (this.crossings.length >= 2 || this.servedOnce()) { events.push({ type: "end", t, ...this.outcome() }); this.lastRally = this.crossings[this.crossings.length - 1]; }
+        // a ball handed over is one toss of a second or two; anything that kept flying longer was played
+        if (this.crossings.length >= 2 || this.servedOnce() || this.lastSeen - this.startedAt >= 3) { events.push({ type: "end", t, ...this.outcome() }); this.lastRally = this.crossings[this.crossings.length - 1]; }
         else events.push({ type: "cancel", t, why: "handover" });
       }
       // a "rally" shorter than a serve plus its bounce was something else moving (a ball being picked up, a toss)
@@ -197,7 +203,11 @@ class RallyJudge {
     if (!toCourt) return;
     const g = toCourt(q.x, q.y); if (!g || !(Math.abs(g[1]) < 60) || Math.abs(g[1]) < 1.5) return;
     const sd = Math.sign(g[1]);
-    if (this.side && sd !== this.side) this.crossings.push(q.t);
+    if (this.side && sd !== this.side) {
+      // back across within 0.4 s: jitter around the net (a ball dropping onto the tape looks like that), not two crossings
+      const lastCross = this.crossings[this.crossings.length - 1];
+      this.crossings.push(q.t);
+    }
     this.side = sd;
   }
   // the point was decided outside the judge (tapped by hand, or the next score call was heard): stop following this rally
