@@ -266,6 +266,7 @@ details ul { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 4px; }
       <label>錄影<select id="recMode"><option value="rally">只錄每一球</option><option value="off">不錄影</option></select></label>
       <label>往前保留<select id="preroll"><option value="1">1 秒</option><option value="3" selected>3 秒</option><option value="5">5 秒</option></select></label>
       <label>診斷資訊<select id="diagMode"><option value="off">不顯示</option><option value="on">顯示在畫面下方</option></select></label>
+      <label>語音報分<select id="sayCall"><option value="off">不報</option><option value="on">每分之後念出比分</option></select></label>
       <label>自動確認<select id="autoSec"><option value="5">5 秒</option><option value="8">8 秒</option><option value="0">不自動，要手動按</option></select></label>
     </div>
     <details>
@@ -329,7 +330,26 @@ function award(side, reason, auto, rallyN = null) {
   }
   renderLog(); renderBoard();
   if (navigator.vibrate) navigator.vibrate(30);
+  sayCall();
 }
+// Reads the new call out loud, the way the server calls it before serving ("一、零、二"), so players hear the score without
+// walking to the phone. Phones only allow speech after a tap on the page: the first tap on the camera button unlocks it.
+const ZH = "零一二三四五六七八九";
+const zhNum = (n) => n < 10 ? ZH[n] : n < 20 ? "十" + (n % 10 ? ZH[n % 10] : "") : ZH[Math.floor(n / 10)] + "十" + (n % 10 ? ZH[n % 10] : "");
+function sayCall() {
+  if ($("sayCall").value !== "on" || !window.speechSynthesis) return;
+  const text = game.winner ? `${game.winner} 隊贏得這一局` : `${zhNum(game.score[game.serving])}，${zhNum(game.score[game.other(game.serving)])}，${zhNum(game.server)}`;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text); u.lang = "zh-TW"; u.rate = 0.95;
+    speechSynthesis.speak(u);
+  } catch {}
+}
+try { const v = localStorage.getItem("pp.sayCall"); if (v) $("sayCall").value = v; } catch {}
+$("sayCall").addEventListener("change", () => {
+  try { localStorage.setItem("pp.sayCall", $("sayCall").value); } catch {}
+  if ($("sayCall").value === "on") sayCall();      // a tap: this unlocks speech and lets the player hear it once
+});
 // side-out rules in words: only the serving team scores; the receiving team winning moves the serve on
 function whatHappened(team, serving, server) {
   const other = team === "A" ? "B" : "A";
@@ -390,7 +410,7 @@ function setCall(serving, c, reason) {
   const what = `<b>${reason}</b> → ${serving} 隊發球，喊分 ${game.call()}`;
   log.unshift({ n: log.length + 1, t: clock(), team: serving, side: sideOf(serving), reason, call: game.call(), auto: false, what, adjust: true });
   if (match) { match.points.push({ rally: null, adjust: true, serving, call: game.call(), at: Date.now() }); saveMatch(); }
-  renderLog(); renderBoard();
+  renderLog(); renderBoard(); sayCall();
 }
 for (const T of ["A", "B"]) $("adj" + T).addEventListener("click", () => {
   const c = parseCall(adjBuf); if (!c) return;
@@ -461,6 +481,8 @@ function newPlayers(w, h) {
   return new PlayerFinder(Math.floor(w / 4), Math.floor(h / 4), toCourt, 4, toImage);
 }
 $("camBtn").addEventListener("click", async () => {
+  // speech must start from a tap on iPhones: an empty utterance now lets the score be read out later
+  if ($("sayCall").value === "on" && window.speechSynthesis) try { speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch {}
   try {
     const { stream, note } = await openCamera($("lens").value === "0.5");
     cam.srcObject = stream; fileMode = false;
