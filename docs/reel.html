@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050709">
+<title>精華影片</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Noto+Sans+TC:wght@500;900&display=swap">
+<style>
+/* Turns a saved game's rally clips into one vertical (9:16) highlight video for Instagram Reels: title card, each point
+   with a score bug and a slow-motion finish, a "POINT" slam, the final score. Rendered on the phone into a canvas that
+   MediaRecorder records, so making it takes about as long as the video. */
+:root {
+  --bg: #050709; --panel: #0b1014; --panel-2: #10171c; --line: #1c272e; --line-hi: #2b3a43;
+  --ink: #e8f0f2; --muted: #7d8f97; --ball: #f3d23c; --bad: #ff5d6c; --good: #44e0a0;
+  --display: "Chakra Petch", "Noto Sans TC", system-ui, sans-serif;
+  --body: "Noto Sans TC", -apple-system, "PingFang TC", system-ui, sans-serif;
+  color-scheme: dark;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { background: var(--bg); }
+body { margin: 0; color: var(--ink); font-family: var(--body); font-size: 14px; line-height: 1.6; -webkit-text-size-adjust: 100%; }
+.app { max-width: 560px; margin: 0 auto; display: grid; gap: 12px; padding: 10px max(14px, env(safe-area-inset-left, 0px)) 40px; }
+.bar { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.bar b { font-family: var(--display); font-size: 17px; letter-spacing: .06em; margin-right: auto; }
+.bar a { color: var(--ball); text-decoration: none; }
+.card { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.card h1 { margin: 0; font-size: 18px; }
+.card p { margin: 0; color: var(--muted); font-size: 13px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-hi); background: var(--panel-2); color: var(--ink); font: inherit; font-weight: 700; cursor: pointer; text-decoration: none; }
+.btn.primary { background: var(--ball); border-color: var(--ball); color: var(--bg); box-shadow: 0 0 14px rgba(243, 210, 60, .35); }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+label.opt { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+select { min-height: 38px; font: inherit; color: var(--ink); background: var(--panel-2); border: 1px solid var(--line-hi); border-radius: 8px; padding: 0 8px; }
+.matches { display: grid; gap: 8px; }
+.matches button { text-align: left; }
+.stage { position: relative; display: grid; justify-items: center; gap: 8px; }
+canvas#out { width: min(100%, 320px); aspect-ratio: 9 / 16; background: #000; border: 1px solid var(--line-hi); border-radius: 10px; }
+.src { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+.src video { width: 96px; aspect-ratio: 16 / 9; background: #000; border-radius: 4px; }
+.prog { width: 100%; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.prog i { display: block; height: 100%; width: 0; background: var(--ball); }
+.status { font-size: 12px; color: var(--muted); min-height: 18px; }
+.status.err { color: var(--bad); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar"><b>精華影片</b><a href="score.html?v=20261103162011">即時計分</a><a href="./?v=20261103162011">賽後分析</a></header>
+
+  <section class="card" id="pick" hidden>
+    <h1>選一場比賽</h1>
+    <p>用即時計分錄下每一球的比賽，才能做成精華影片。</p>
+    <div class="matches" id="matches"></div>
+  </section>
+
+  <section class="card" id="setup" hidden>
+    <h1 id="mTitle">精華影片</h1>
+    <p id="mInfo"></p>
+    <label class="opt">放哪些球<select id="which"><option value="all">全部分出勝負的球</option><option value="best">最長的 5 球</option></select></label>
+    <label class="opt">慢動作<select id="slow"><option value="on">每球最後一擊放慢</option><option value="off">不要</option></select></label>
+    <p>直式 9:16，可以直接放 IG 限時動態或 Reels。製作時間大約等於影片長度，<b>做的時候不要切換 App 或鎖螢幕</b>。音樂建議上傳 IG 時再加。</p>
+    <div class="row"><button class="btn primary" id="go" type="button">開始製作</button></div>
+  </section>
+
+  <section class="card" id="work" hidden>
+    <div class="stage">
+      <canvas id="out" width="720" height="1280"></canvas>
+      <div class="src"><video id="vid" playsinline muted></video><span>原始畫面</span></div>
+      <div class="prog"><i id="bar"></i></div>
+    </div>
+    <div class="status" id="status" role="status"></div>
+    <div class="row"><button class="btn primary" id="share" type="button" hidden>存到相簿／分享到 IG</button><button class="btn" id="again" type="button" hidden>重新製作</button></div>
+    <p id="after" hidden>存到相簿後，打開 IG → 新增 Reels → 選這支影片，在 IG 裡加上音樂就完成了。</p>
+  </section>
+</div>
+<script src="ball.js?v=20261103162011"></script>
+<script src="match.js?v=20261103162011"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const W = 720, H = 1280, YELLOW = "#f3d23c", INK = "#e8f0f2", MUTED = "#7d8f97";
+const out = $("out"), ctx = out.getContext("2d"), vid = $("vid");
+const small = document.createElement("canvas"); small.width = 48; small.height = 27;
+const sctx = small.getContext("2d");
+let match = null, points = [], film = null, made = null;
+function setStatus(msg, err = false) { $("status").textContent = msg; $("status").classList.toggle("err", err); }
+const ease = (x) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
+
+// ---------- which points, and the score before and after each ----------
+// The score is replayed from the saved log with the same side-out rules as the scoring page.
+function pointsOf(m, clipsByN) {
+  const g = new SideOutGame({ firstServer: m.firstServer || "A", target: m.target || 11 }), list = [];
+  const snap = () => ({ A: g.score.A, B: g.score.B, call: g.call(), serving: g.serving });
+  for (const p of m.points) {
+    if (p.adjust) { const c = (p.call || "").split("-").map(Number); if (c.length === 3) g.set(p.serving, c[0], c[1], c[2]); continue; }
+    const before = snap();
+    g.rally(p.team);
+    const r = m.rallies.find((x) => x.n === p.rally), clip = clipsByN.get(p.rally);
+    if (!r || !clip) continue;
+    const len = r.end && r.at ? (r.end - r.at) / 1000 : Math.max(2, clip.duration - clip.preroll - 1);
+    list.push({ n: p.rally, team: p.team, before, after: snap(), winner: g.winner, clip, len });
+  }
+  return list;
+}
+
+// ---------- the drawing ----------
+// background: the same picture blown up and blurred (drawn tiny, then stretched), darkened
+function drawBackdrop(src, t) {
+  if (src) {
+    sctx.drawImage(src, 0, 0, small.width, small.height);
+    ctx.imageSmoothingEnabled = true;
+    const bw = H * 16 / 9;
+    ctx.drawImage(small, (W - bw) / 2, 0, bw, H);
+  } else { ctx.fillStyle = "#0b1014"; ctx.fillRect(0, 0, W, H); }
+  ctx.fillStyle = "rgba(5,7,9,.62)"; ctx.fillRect(0, 0, W, H);
+  // slow diagonal stripes for movement
+  ctx.save(); ctx.globalAlpha = 0.06; ctx.fillStyle = YELLOW;
+  const off = (t * 60) % 120;
+  for (let x = -H; x < W + H; x += 120) { ctx.beginPath(); ctx.moveTo(x + off, 0); ctx.lineTo(x + off + 40, 0); ctx.lineTo(x + off + 40 - H, H); ctx.lineTo(x + off - H, H); ctx.fill(); }
+  ctx.restore();
+}
+function vignette() {
+  const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.75);
+  g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.65)");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+function text(s, x, y, size, color, { weight = 700, align = "center", font = "Chakra Petch", spacing = 0, alpha = 1 } = {}) {
+  ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "middle";
+  ctx.font = `${weight} ${size}px "${font}", "Noto Sans TC", sans-serif`;
+  if ("letterSpacing" in ctx) ctx.letterSpacing = `${spacing}px`;
+  ctx.fillText(s, x, y); ctx.restore();
+}
+// glitchy title: red and cyan copies jitter around the white one for a moment
+function glitch(s, x, y, size, k) {
+  if (k > 0) {
+    text(s, x - 6 * k + (Math.random() - 0.5) * 10 * k, y, size, "rgba(255,60,80,.8)");
+    text(s, x + 6 * k + (Math.random() - 0.5) * 10 * k, y, size, "rgba(60,220,255,.8)");
+  }
+  text(s, x, y, size, INK);
+}
+function brackets(x, y, w, h, color, len = 34, lw = 5) {
+  ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.lineCap = "square";
+  for (const [cx, cy, dx, dy] of [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]]) {
+    ctx.beginPath(); ctx.moveTo(cx, cy + dy * len); ctx.lineTo(cx, cy); ctx.lineTo(cx + dx * len, cy); ctx.stroke();
+  }
+  ctx.restore();
+}
+function brand(t) {
+  text("PICKLE/SCORE", W / 2, H - 70, 26, MUTED, { spacing: 6 });
+  ctx.fillStyle = YELLOW; ctx.fillRect(W / 2 - 60 + Math.sin(t * 3) * 20, H - 46, 120, 4);
+}
+function scoreBug(s, y, pulse = 0) {
+  const k = 1 + 0.25 * pulse;
+  ctx.save(); ctx.translate(W / 2, y); ctx.scale(k, k);
+  text(`${s.A}`, -150, 0, 150, s.serving === "A" ? YELLOW : INK);
+  text(":", 0, -8, 110, MUTED);
+  text(`${s.B}`, 150, 0, 150, s.serving === "B" ? YELLOW : INK);
+  ctx.restore();
+  text("A 隊", W / 2 - 150, y + 100, 30, MUTED, { font: "Noto Sans TC", weight: 900 });
+  text("B 隊", W / 2 + 150, y + 100, 30, MUTED, { font: "Noto Sans TC", weight: 900 });
+  text(s.call, W / 2, y + 160, 40, INK, { spacing: 6, alpha: 0.85 });
+}
+// the rally picture: framed, slowly zooming, punched in at the cut
+function drawClip(t, p, view) {
+  const fw = 700, fh = 394, cx = W / 2, cy = 590;
+  const punch = 1 + 0.14 * (1 - ease(view.sinceCut / 0.35));
+  const zoom = 1 + 0.06 * Math.min(1, view.inSeg / 8);
+  const sw = vid.videoWidth / zoom, sh = vid.videoHeight / zoom;
+  ctx.save(); ctx.translate(cx + view.shake[0], cy + view.shake[1]); ctx.scale(punch, punch);
+  if (vid.videoWidth) ctx.drawImage(vid, (vid.videoWidth - sw) / 2, (vid.videoHeight - sh) / 2, sw, sh, -fw / 2, -fh / 2, fw, fh);
+  ctx.strokeStyle = "rgba(255,255,255,.15)"; ctx.lineWidth = 2; ctx.strokeRect(-fw / 2, -fh / 2, fw, fh);
+  brackets(-fw / 2 - 10, -fh / 2 - 10, fw + 20, fh + 20, YELLOW);
+  ctx.restore();
+  text(`RALLY #${String(view.index + 1).padStart(2, "0")}`, W / 2, 230, 76, YELLOW, { spacing: 8 });
+  text(`${view.index + 1} / ${view.total}`, W / 2, 300, 26, MUTED, { spacing: 4 });
+  if (view.slow) {
+    ctx.save(); ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 12);
+    ctx.fillStyle = "#ff3b4f"; ctx.fillRect(40, 370, 196, 46);
+    ctx.restore();
+    text("SLOW-MO", 138, 393, 30, "#fff", { spacing: 4 });
+    // speed lines
+    ctx.save(); ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 3;
+    for (let i = 0; i < 10; i++) { const yy = 400 + ((i * 97 + t * 900) % 400); ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(60 + (i % 3) * 30, yy); ctx.moveTo(W, yy); ctx.lineTo(W - 60 - (i % 3) * 30, yy); ctx.stroke(); }
+    ctx.restore();
+  }
+}
+// "POINT" slams in over the frozen last frame, with a burst and a shake
+function drawSlam(t, p, k) {
+  const a = ease(k / 0.25), sc = 2.4 - 1.4 * a;
+  ctx.save(); ctx.translate(W / 2, 590); ctx.rotate(-0.06);
+  ctx.globalAlpha = 0.25 * (1 - Math.min(1, k / 0.6)); ctx.fillStyle = YELLOW;
+  for (let i = 0; i < 18; i++) { ctx.rotate(Math.PI / 9); ctx.fillRect(60, -6, 380 * a, 12); }
+  ctx.restore();
+  ctx.save(); ctx.translate(W / 2, 560); ctx.rotate(-0.06); ctx.scale(sc, sc);
+  ctx.globalAlpha = a;
+  ctx.fillStyle = YELLOW; ctx.fillRect(-300, -80, 600, 160);
+  text("POINT", 0, -4, 120, "#050709", { spacing: 10 });
+  ctx.restore();
+  text(`${p.team} 隊得分`, W / 2, 700, 54, INK, { font: "Noto Sans TC", weight: 900, alpha: ease((k - 0.15) / 0.3) });
+}
+function flash(k) { if (k < 1) { ctx.fillStyle = `rgba(255,255,255,${(1 - k) * 0.85})`; ctx.fillRect(0, 0, W, H); } }
+
+// ---------- the film: a list of timed parts drawn frame by frame ----------
+const INTRO = 2.6, SLAM = 1.4, OUTRO = 3.2;
+function drawIntro(t, k) {
+  drawBackdrop(null, t);
+  const m = match, f = m.final?.score || points[points.length - 1]?.after || { A: 0, B: 0 };
+  glitch("MATCH", W / 2, 470, 130, Math.max(0, 1 - k / 0.7));
+  glitch("HIGHLIGHTS", W / 2, 600, 96, Math.max(0, 1 - k / 0.9));
+  ctx.fillStyle = YELLOW; ctx.fillRect(W / 2 - 200 * ease(k / 0.5), 680, 400 * ease(k / 0.5), 8);
+  text(new Date(m.startedAt).toLocaleDateString("zh-TW"), W / 2, 760, 34, MUTED, { font: "Noto Sans TC", weight: 500, alpha: ease((k - 0.3) / 0.4) });
+  text(`A ${f.A}  :  ${f.B} B`, W / 2, 880, 80, INK, { alpha: ease((k - 0.6) / 0.4) });
+  text("PICKLEBALL · 匹克球", W / 2, 980, 30, YELLOW, { font: "Noto Sans TC", weight: 900, spacing: 4, alpha: ease((k - 0.9) / 0.4) });
+  vignette(); brand(t); flash(k / 0.25);
+}
+function drawOutro(t, k) {
+  drawBackdrop(null, t);
+  const last = points[points.length - 1], f = match.final?.score || last?.after || { A: 0, B: 0 };
+  // the game was won only if someone reached the target; otherwise the team ahead is just leading
+  const won = match.final?.winner || last?.winner || null, win = won || (f.A === f.B ? null : f.A > f.B ? "A" : "B");
+  text("FINAL", W / 2, 400, 110, YELLOW, { spacing: 14, alpha: ease(k / 0.3) });
+  ctx.save(); ctx.translate(W / 2, 600); const s = 1.6 - 0.6 * ease(k / 0.35); ctx.scale(s, s);
+  text(`${f.A}`, -170, 0, 200, win === "A" ? YELLOW : INK); text(":", 0, -10, 150, MUTED); text(`${f.B}`, 170, 0, 200, win === "B" ? YELLOW : INK);
+  ctx.restore();
+  text("A 隊", W / 2 - 170, 740, 36, MUTED, { font: "Noto Sans TC", weight: 900 });
+  text("B 隊", W / 2 + 170, 740, 36, MUTED, { font: "Noto Sans TC", weight: 900 });
+  if (win) {
+    ctx.save(); ctx.globalAlpha = ease((k - 0.5) / 0.3); ctx.fillStyle = YELLOW; ctx.fillRect(W / 2 - 230, 820, 460, 110); ctx.restore();
+    text(won ? `${win} 隊 WIN` : `${win} 隊領先`, W / 2, 875, 72, "#050709", { spacing: 6, alpha: ease((k - 0.5) / 0.3) });
+  }
+  text("#pickleball  #匹克球", W / 2, 1040, 32, MUTED, { font: "Noto Sans TC", weight: 500, alpha: ease((k - 0.9) / 0.4) });
+  vignette(); brand(t); flash(k / 0.2);
+}
+
+// ---------- making it ----------
+function pickMime() {
+  for (const m of ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"]) if (window.MediaRecorder?.isTypeSupported?.(m)) return m;
+  return "";
+}
+function waitFor(el, ev, ms) { return new Promise((res) => { const t = setTimeout(res, ms); el.addEventListener(ev, () => { clearTimeout(t); res(); }, { once: true }); }); }
+async function load(blob) {
+  vid.src = URL.createObjectURL(blob);
+  await waitFor(vid, "loadedmetadata", 5000);
+  // an iPhone shows no picture until the video has played once
+  try { await vid.play(); } catch {}
+  vid.pause();
+}
+async function seek(t) { if (Math.abs(vid.currentTime - t) < 0.05) return; vid.currentTime = t; await waitFor(vid, "seeked", 2000); }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// draws `fn(t, k)` every frame for `sec` seconds (k: seconds into this part)
+function hold(sec, fn) {
+  return new Promise((res) => {
+    const t0 = performance.now();
+    const tick = () => {
+      if (!film.running) return res();
+      const k = (performance.now() - t0) / 1000;
+      fn(performance.now() / 1000, k);
+      if (k >= sec) res(); else requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}
+async function make() {
+  const mime = pickMime(), canvasOK = !!out.captureStream;
+  if (!mime || !canvasOK) { setStatus("這個瀏覽器不能錄影，請用 iPhone 的 Safari 開這個網頁。", true); return; }
+  let list = points.slice();
+  if ($("which").value === "best") list = list.slice().sort((a, b) => b.len - a.len).slice(0, 5).sort((a, b) => a.n - b.n);
+  if (!list.length) { setStatus("這場沒有錄到分出勝負的球。", true); return; }
+  const slowOn = $("slow").value === "on";
+  $("setup").hidden = true; $("work").hidden = false; $("share").hidden = true; $("again").hidden = true; $("after").hidden = true;
+  try { await document.fonts.load('700 80px "Chakra Petch"'); await document.fonts.load('900 40px "Noto Sans TC"'); } catch {}
+  let wake = null; try { wake = await navigator.wakeLock?.request("screen"); } catch {}
+  const stream = out.captureStream(30), chunks = [];
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6e6 });
+  rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
+  film = { running: true };
+  // keep the canvas busy between parts too (a recorder on a still canvas can drop the frames)
+  drawIntro(performance.now() / 1000, 0);
+  rec.start(1000);
+  await hold(INTRO, drawIntro);
+  for (let i = 0; i < list.length && film.running; i++) {
+    const p = list[i];
+    $("bar").style.width = `${(100 * i) / list.length}%`;
+    setStatus(`製作中：第 ${i + 1} / ${list.length} 球`);
+    await load(p.clip.blob);
+    // from 1.5 s before the rally was seen to 1 s after it ended; the last 2 s or so in slow motion
+    const dur = isFinite(vid.duration) ? vid.duration : p.clip.duration;
+    const t0 = Math.max(0, p.clip.preroll - 1.5), t1 = Math.min(dur - 0.05, p.clip.preroll + p.len + 1);
+    const slowFrom = slowOn ? Math.max(t0 + 1, t1 - 2.4) : Infinity, slowTo = t1 - 0.6;
+    await seek(t0);
+    const view = { index: i, total: list.length, sinceCut: 0, inSeg: 0, shake: [0, 0], slow: false };
+    const cut = performance.now();
+    try { vid.playbackRate = 1; await vid.play(); } catch {}
+    await new Promise((res) => {
+      const tick = () => {
+        if (!film.running) return res();
+        const now = performance.now() / 1000;
+        view.sinceCut = now - cut / 1000; view.inSeg = vid.currentTime - t0;
+        const slow = vid.currentTime >= slowFrom && vid.currentTime < slowTo;
+        if (slow !== view.slow) { view.slow = slow; vid.playbackRate = slow ? 0.4 : 1; }
+        drawBackdrop(vid, now); drawClip(now, p, view); scoreBug(p.before, 960); vignette(); brand(now); flash(view.sinceCut / 0.18);
+        if (vid.currentTime >= t1 || vid.ended || view.sinceCut > 40) res(); else requestAnimationFrame(tick);
+      };
+      tick();
+    });
+    vid.pause(); vid.playbackRate = 1;
+    // POINT: the last frame freezes, the score changes
+    await hold(SLAM, (now, k) => {
+      const sh = k < 0.5 ? (1 - k / 0.5) * 14 : 0;
+      view.shake = [(Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh]; view.sinceCut = 10; view.slow = false;
+      drawBackdrop(vid, now); drawClip(now, p, view);
+      scoreBug(k < 0.35 ? p.before : p.after, 960, k > 0.35 ? Math.max(0, 1 - (k - 0.35) / 0.3) : 0);
+      drawSlam(now, p, k); vignette(); brand(now);
+    });
+    URL.revokeObjectURL(vid.src);
+  }
+  await hold(OUTRO, drawOutro);
+  $("bar").style.width = "100%";
+  const done = new Promise((res) => { rec.onstop = res; setTimeout(res, 20000); });
+  rec.stop(); await done;
+  wake?.release?.();
+  if (!film.running) { setStatus("已停止。"); return; }
+  film.running = false;
+  const type = mime.split(";")[0], d = new Date(match.startedAt);
+  const name = `pickleball-highlight-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}.${type.includes("mp4") ? "mp4" : "webm"}`;
+  made = new File([new Blob(chunks, { type })], name, { type });
+  setStatus(`完成：${list.length} 球，${(made.size / 1048576).toFixed(1)}MB。`);
+  $("share").hidden = false; $("again").hidden = false; $("after").hidden = false;
+}
+$("share").addEventListener("click", async () => {
+  if (!made) return;
+  if (navigator.canShare?.({ files: [made] })) {
+    try { await navigator.share({ files: [made] }); } catch (e) { if (e.name !== "AbortError") setStatus(`分享失敗：${e.message}`, true); }
+    return;
+  }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(made); a.download = made.name; a.click();
+});
+$("again").addEventListener("click", () => { $("work").hidden = true; $("setup").hidden = false; });
+$("go").addEventListener("click", () => make().catch((e) => { film && (film.running = false); setStatus(`製作失敗：${e.message || e}`, true); }));
+document.addEventListener("visibilitychange", () => {
+  if (!film?.running) return;
+  if (document.hidden) setStatus("切到別的 App 時會停住，請回到這個畫面。", true);
+  else vid.play().catch(() => {});
+});
+
+// ---------- choosing the game ----------
+async function openMatch(id) {
+  match = await MatchDB.getMatch(id);
+  if (!match) { setStatus("找不到這場比賽。", true); return showList(); }
+  const clips = await MatchDB.clipsOf(id), byN = new Map(clips.map((c) => [c.n, c]));
+  points = pointsOf(match, byN);
+  const f = match.final?.score;
+  $("mTitle").textContent = `${fmtDate(match.startedAt)}　A ${f?.A ?? "-"} : ${f?.B ?? "-"} B`;
+  const sec = points.reduce((a, p) => a + Math.min(p.len + 2.5, 30) + SLAM, INTRO + OUTRO);
+  $("mInfo").textContent = points.length ? `有影片又分出勝負的球：${points.length} 球，精華影片約 ${Math.round(sec)} 秒。` : "這場沒有錄到分出勝負的球，沒辦法做精華影片。";
+  $("go").disabled = !points.length;
+  $("pick").hidden = true; $("setup").hidden = false;
+}
+async function showList() {
+  const list = await MatchDB.listMatches().catch(() => []);
+  $("pick").hidden = false; $("setup").hidden = true;
+  $("matches").innerHTML = list.length ? "" : "<p>還沒有比賽紀錄。</p>";
+  for (const m of list) {
+    const b = document.createElement("button"); b.className = "btn"; b.type = "button";
+    b.textContent = `${fmtDate(m.startedAt)}　A ${m.final?.score.A ?? "-"} : ${m.final?.score.B ?? "-"} B · ${m.points.filter((p) => !p.adjust).length} 分`;
+    b.addEventListener("click", () => openMatch(m.id));
+    $("matches").appendChild(b);
+  }
+}
+const id = new URLSearchParams(location.search).get("match");
+id ? openMatch(id) : showList();
+window.__make = make; window.__points = () => points;
+</script>
+</body>
+</html>

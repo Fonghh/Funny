@@ -96,13 +96,13 @@ def main():
     # so phones fetch the new version right away instead of a cached copy (Pages caches for 10 minutes).
     stamp = time.strftime("%Y%m%d%H%M%S")
     def stamped(html):
-        for a, b in (('href="score.html"', f'href="score.html?v={stamp}"'), ('href="shrink.html"', f'href="shrink.html?v={stamp}"'), ('href="./"', f'href="./?v={stamp}"'),
+        for a, b in (('href="score.html"', f'href="score.html?v={stamp}"'), ('href="shrink.html"', f'href="shrink.html?v={stamp}"'), ('href="reel.html"', f'href="reel.html?v={stamp}"'), ('href="./"', f'href="./?v={stamp}"'),
                      ('src="court.js"', f'src="court.js?v={stamp}"'), ('src="ball.js"', f'src="ball.js?v={stamp}"'), ('src="players.js"', f'src="players.js?v={stamp}"'),
                      ('src="match.js"', f'src="match.js?v={stamp}"')):
             html = html.replace(a, b)
         return html
     (OUT / "index.html").write_text(stamped(page), encoding="utf-8")
-    for name in ("score.html", "shrink.html"):
+    for name in ("score.html", "shrink.html", "reel.html"):
         (OUT / name).write_text(stamped((HERE / name).read_text(encoding="utf-8")), encoding="utf-8")
     for f in ("ball.js", "court.js", "match.js", "players.js"):
         shutil.copy(HERE / f, OUT / f)
